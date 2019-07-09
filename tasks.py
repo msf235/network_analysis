@@ -24,6 +24,7 @@ def random_classification(s, d):
 
     datasets = {'train': InpData(inputs, labels),
                 'val': InpData(inputs, labels)}
-    dataloaders = {x: torch.utils.data.DataLoader(datasets[x], batch_size=20, shuffle=False, num_workers=1)
+    dataloaders = {x: torch.utils.data.DataLoader(datasets[x], batch_size=20, shuffle=True, num_workers=1,
+                                                  drop_last=True)
                    for x in ['train', 'val']}
     return dataloaders
