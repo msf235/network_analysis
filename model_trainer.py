@@ -62,13 +62,17 @@ def save_checkpoint(state, is_best=True, filename='output/checkpoint.pth.tar'):
 class DefaultStatsTracker:
     def __init__(self, batches_per_epoch, phase: str, accuracy: bool = True):
         self.batches_per_epoch: int = batches_per_epoch
+        self.accuracy: bool = accuracy
         self.running_avg_loss_tot: float = 0.
         self.running_avg_loss_epoch: float = 0.
         self.batch: int = 0
         self.epoch: int = 0
-        self.running_accuracy: float = 0.
+        self.running_accuracy_tot: float = 0.
+        self.running_accuracy_epoch: float = 0.
         self.epoch: int = 0
         self.batch: int = 0
+        self.losses_all = []
+        self.epoch_losses = []
         if phase == 'train':
             self.phase = 'Training'
         elif phase == 'val':
@@ -79,19 +83,38 @@ class DefaultStatsTracker:
     def __call__(self, stats_dict):
         batch = stats_dict['batch']
         epoch = stats_dict['epoch']
-
+        loss = stats_dict['loss']
+        self.losses_all.append(loss)
         if batch == 0:
             self.running_avg_loss_epoch = 0.
+            self.running_accuracy_epoch = 0.
 
-        n = self.batches_per_epoch * epoch + (batch+1)
-        self.running_avg_loss_tot = self.running_avg_loss_tot * ((n - 1) / n) + stats_dict['loss'] / n
-        self.running_avg_loss_epoch = self.running_avg_loss_epoch * ((n - 1) / n) + stats_dict['loss'] / n
+        num_terms_tot = self.batches_per_epoch * epoch + (batch+1)
+        num_terms_epoch = batch+1
+        # print(n)
+        self.running_avg_loss_tot = (self.running_avg_loss_tot * ((num_terms_tot - 1) / num_terms_tot)
+                                     +stats_dict['loss'] / num_terms_tot)
+        self.running_avg_loss_epoch = (self.running_avg_loss_epoch * ((num_terms_epoch - 1) / num_terms_epoch)
+                                       + stats_dict['loss'] / num_terms_epoch)
 
-        # print(batch)
-        # if batch == self.batches_per_epoch-1: # We've reached the end of an epoch
+        print(stats_dict['loss'])
+        print(self.running_avg_loss_epoch)
+        if self.accuracy:
+            out_class = torch.argmax(stats_dict['outputs'], dim=1)
+            accuracy = torch.mean((out_class == stats_dict['labels']).double())
+
+            self.running_accuracy_epoch = (self.running_accuracy_epoch * ((num_terms_epoch - 1) / num_terms_epoch)
+                                           + accuracy / num_terms_epoch)
+
         if stats_dict['epoch_end']: # We've reached the end of an epoch
-            # print(f"Epoch: {epoch}")
-            print(f"{self.phase} loss over this epoch: {self.running_avg_loss_epoch}")
+            self.epoch_losses.append(self.running_avg_loss_epoch)
+            print(f"Average {self.phase} loss over this epoch: {self.running_avg_loss_epoch}")
+            if self.accuracy:
+                print(f"Average {self.phase} accuracy over this epoch: {self.running_accuracy_epoch}")
+
+    def export_stats(self):
+        out_stats = dict(epoch_losses=self.epoch_losses)
+        return out_stats
 
 
 
@@ -169,53 +192,31 @@ def train_model(model: nn.Module,
     out_dir = Path(out_dir)
     device = torch.device("cpu")
     dataset_sizes = {x: len(dataloaders[x].dataset) for x in dataloaders}
-
     batches_per_epoch = {x: int(dataset_sizes[x] / dataloaders[x].batch_size) for x in ['train', 'val']}
 
-    # train_samples_per_save = int(round(epochs_per_save * train_batches_per_epoch))
-
     model.eval()
-
     print('optimizer is ', optimizer)
-
-    stats_trackers = {x: DefaultStatsTracker(batches_per_epoch[x], x, accuracy=False) for x in ['train', 'val']}
-
-
+    stats_trackers = {x: DefaultStatsTracker(batches_per_epoch[x], x, accuracy=True) for x in ['train', 'val']}
     # train_conv_check = cc.CheckConvergence(memory_length=patience_before_stopping,
     #                                        min_length=patience_before_stopping,
     #                                        tolerance=-.004)
-    # stat_keys = ['epoch', 'batch', 'training_loss',
-    #     'validation_loss', 'training_accuracy', 'validation_accuracy', 'training_loss_batch',
-    #     'validation_loss_batch', 'training_accuracy_batch', 'validation_accuracy_batch']
-    # stat_keys_nobatch = ['epoch', 'training_loss', 'validation_loss', 'training_accuracy', 'validation_accuracy']
-    # stat_keys = ['loss', 'training_accuracy', 'validation_accuracy', 'batch', 'epoch']
     stat_keys = ['loss', 'batch', 'epoch', 'epoch_end']
-    # stat_dict_batch = {x: None for x in stat_keys}
-    # stat_dict_epoch = {x: None for x in stat_keys}
-    batch_total_cnt = 0
-    save_cnt = 0
 
     stat_dict = {x: None for x in stat_keys}
-    stat_dict_epoch = {x: None for x in stat_keys}
-    # stat_dict_epoch['epoch'] = None
-    stat_dict_batch = {x: None for x in stat_keys}
-    # stat_dict_batch['tot_batch'] = None
+    stat_dict['model'] = model
+    stat_dict['dataloaders'] = dataloaders
     if out_dir is not None:
         Path.mkdir(out_dir, exist_ok=True)
 
     batch_sizes = {x: dataloaders[x].batch_size for x in ['train', 'val']}
 
+    save_cnt = 0
     def save_model_criterion(stat_dict):
         start_bool = stat_dict['epoch'] == 0 and stat_dict['batch'] == 0
         return stat_dict['epoch_end'] or start_bool
 
     def stopping_criterion(stat_dict):
         return False
-
-    # sample_total_cnt = 0
-    # save_checkpoint({'state_dict': model.state_dict()},
-    #                 filename=out_dir / f'check_{save_cnt}')
-    # save_cnt = save_cnt
 
     for epoch in range(stopping_epoch + 1):  # epoch 0 corresponds with model before training
         print()
@@ -230,9 +231,6 @@ def train_model(model: nn.Module,
                 model.train()  # Set model to training mode
             else:
                 model.eval()  # Set model to evaluate mode
-
-            running_loss = 0.0
-            running_corrects = 0
 
             # Iterate over data.
             batch = 0
@@ -270,6 +268,8 @@ def train_model(model: nn.Module,
                     stat_dict['loss'] = loss
                     stat_dict['epoch'] = epoch
                     stat_dict['batch'] = batch
+                    stat_dict['outputs'] = outputs
+                    stat_dict['labels'] = labels
                     if dataset_sizes[phase] % batch_sizes[phase] == 0 or dataloaders[phase].drop_last == True:
                         if batch == batches_per_epoch[phase] - 1:
                             stat_dict['epoch_end'] = True
@@ -281,22 +281,17 @@ def train_model(model: nn.Module,
                         else:
                             stat_dict['epoch_end'] = False
 
-                    # for x in stat_dict_batch:
-                    #     stat_dict[x] = eval(x)
                     stats_trackers[phase](stat_dict)
                 batch = batch + 1
 
 
 
-                # statistics
-                running_loss += loss
                 # if classify:
                 #     if len(outputs.shape) == 3:
                 #         running_corrects += torch.sum(preds == labels[:, -1].long())
                 #     else:
                 #         running_corrects += torch.sum(preds == labels.long())
 
-            epoch_loss = running_loss / dataset_sizes[phase]
 
     #         if phase == 'val':
     #             stop_bool = train_conv_check.check_increasing(epoch_loss, verbose=True)
@@ -343,8 +338,8 @@ def train_model(model: nn.Module,
 
 
 if __name__ == '__main__':
-    ff = models.DenseRandomRegularFF(10, 3, 2, 2, 0.1, 0.4, 'tanh')
-    data = tasks.random_classification(80, 10)
+    ff = models.DenseRandomRegularFF(20, 15, 2, 2, 0.1, 0.4, 'tanh')
+    data = tasks.random_classification(20, 20)
     criterion_CEL = nn.CrossEntropyLoss()
     # loss = 0
     # if len(outputs.shape) == 3:
@@ -353,6 +348,6 @@ if __name__ == '__main__':
     def loss(output, label):
         return criterion_CEL(output, label.long())
 
-    optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, ff.parameters()), lr=.001)
-    train_model(ff, data, loss, optimizer, out_dir='test')
+    optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, ff.parameters()), lr=.1)
+    train_model(ff, data, loss, optimizer, stopping_epoch=10, out_dir='test')
 
