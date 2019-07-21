@@ -1,6 +1,8 @@
 import torch
 import numpy
-numpy.dot
+from pathlib import Path
+from . import model_output_manager as mom
+
 
 def load_model(model, filename):
     """
@@ -27,13 +29,13 @@ def get_max_epoch(out_dir):
     Returns:
         (number) the oldest epoch that is saved in the specified directory.
     """
-    out_dir = format_dir(out_dir)
+    out_dir = Path(out_dir)
     # i0 = 0
     # dir_exists = True
     max_look = 10000
     for i0 in range(max_look):
-        filename = out_dir + 'check_{}'.format(i0)
-        dir_exists = os.path.exists(filename)
+        filename = out_dir/'check_{}'.format(i0)
+        dir_exists = Path.exists(filename)
         if not dir_exists:
             return i0 - 1
 
@@ -49,16 +51,16 @@ def load_model_from_epoch_and_dir(model, out_dir, epoch_num):
     Returns:
         (torch.nn.Module, dict) the model and the loaded state information
     """
-    out_dir = format_dir(out_dir)
+    out_dir = Path(out_dir)
     if epoch_num == -1:
         epoch_num = get_max_epoch(out_dir)
-    filename = out_dir + 'check_{}'.format(epoch_num)
+    filename = out_dir/'check_{}'.format(epoch_num)
     state_info = torch.load(filename)
     model.load_state_dict(state_info['state_dict'])
     return model, state_info
 
 
-def load_model_mom(model, epoch, arg_dict, table_path, run_name):
+def load_model_mom(model, epoch, arg_dict, table_path):
     """
     Load a specific model using the model output manager paradigm. This uses
     the model output manager to locate/create the folder containing the run,
@@ -78,7 +80,7 @@ def load_model_mom(model, epoch, arg_dict, table_path, run_name):
     Returns:
         (torch.nn.Module, dict) the loaded model and the state info
     """
-    run_id, run_dir = mom.dir_for_run(arg_dict, table_path)
+    run_id, run_dir = mom.dir_for_run(arg_dict)
     if epoch == -1:
         epoch = get_max_epoch(run_dir)
     model, state_info = load_model_from_epoch_and_dir(model, run_dir, epoch)
