@@ -5,8 +5,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim.optimizer import Optimizer
 
-import models
-import tasks
+from . import models
+from . import tasks
 
 DISABLE_CHECKPOINTS = False
 
@@ -167,12 +167,11 @@ def train_model(
         dataloaders: Dict[str, DataLoader],
         loss_function: Callable[[torch.Tensor, torch.Tensor], float],
         optimizer: Optimizer,
-        scheduler: object = None,
+        learning_scheduler: Optional[Callable[[Dict, str], bool]] = None,
         stopping_epoch: int = 5,
         out_dir: Optional[str] = None,
         return_model_criterion: Optional[Callable[[Dict], bool]] = None,
         save_model_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
-        learning_scheduler: Optional[Callable[[Dict, str], bool]] = None,
         stopping_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
         stats_trackers: Union[None, Callable, str] = None
 ):
@@ -234,11 +233,11 @@ def train_model(
 
     model.eval()
 
-    if scheduler is None:
+    if learning_scheduler is None:
         def learning_scheduler(stat_dict, phase):
             pass
     else:
-        learning_scheduler = LearningScheduler(scheduler)
+        learning_scheduler = LearningScheduler(learning_scheduler)
 
     if save_model_criterion is None:
         save_model_criterion = default_save_model_criterion
@@ -274,7 +273,7 @@ def train_model(
         print('Epoch {}/{}'.format(epoch, stopping_epoch))
         print('-' * 10)
 
-        batch = 0
+        val_batch_num = 0
         for phase in ['train', 'val']:  # First, the train loop, then the validation loop
             training = phase == 'train'
             validating = phase == 'val'
@@ -303,11 +302,11 @@ def train_model(
                     loss_val = loss.item()
                     stat_dict['loss'] = loss_val
                     stat_dict['epoch'] = epoch
-                    stat_dict['batch'] = batch
+                    stat_dict['batch'] = val_batch_num
                     stat_dict['outputs'] = outputs
                     stat_dict['labels'] = labels
                     if dataset_sizes[phase] % batch_sizes[phase] == 0 or dataloaders[phase].drop_last == True:
-                        if batch == batches_per_epoch[phase] - 1:
+                        if val_batch_num == batches_per_epoch[phase] - 1:
                             stat_dict['epoch_end'] = True
                         else:
                             stat_dict['epoch_end'] = False
@@ -332,10 +331,11 @@ def train_model(
                                 save_cnt = save_cnt + 1
                         if return_model_criterion(stat_dict):
                             models_to_return.append(model)
+                        val_batch_num = val_batch_num + 1
 
                     learning_scheduler(stat_dict, phase)
                     stats_trackers[phase](stat_dict)
-                    batch = batch + 1
+
 
             if stopping_criterion(stat_dict):
                 return models_to_return, {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
