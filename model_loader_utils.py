@@ -80,7 +80,7 @@ def load_model_mom(model, epoch, arg_dict, table_path):
     Returns:
         (torch.nn.Module, dict) the loaded model and the state info
     """
-    run_id, run_dir = mom.dir_for_run(arg_dict)
+    run_dir = mom.get_dirs_for_run(arg_dict, table_path=table_path)[0]
     if epoch == -1:
         epoch = get_max_epoch(run_dir)
     model, state_info = load_model_from_epoch_and_dir(model, run_dir, epoch)

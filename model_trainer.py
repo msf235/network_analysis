@@ -153,8 +153,7 @@ class LearningScheduler:
                 self.scheduler.step()
 
 def default_save_model_criterion(stat_dict):
-    start_bool = stat_dict['epoch'] == 0 and stat_dict['batch'] == 0
-    return stat_dict['epoch_end'] or start_bool
+    return stat_dict['epoch_end']
 
 def default_stopping_criterion(stat_dict):
     return False
@@ -162,19 +161,14 @@ def default_stopping_criterion(stat_dict):
 def default_return_model_criterion(stat_dict):
     return stat_dict['final_epoch']
 
-def train_model(
-        model: nn.Module,
-        dataloaders: Dict[str, DataLoader],
-        loss_function: Callable[[torch.Tensor, torch.Tensor], float],
-        optimizer: Optimizer,
-        learning_scheduler: Optional[Callable[[Dict, str], bool]] = None,
-        stopping_epoch: int = 5,
-        out_dir: Optional[str] = None,
-        return_model_criterion: Optional[Callable[[Dict], bool]] = None,
-        save_model_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
-        stopping_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
-        stats_trackers: Union[None, Callable, str] = None
-):
+def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
+                loss_function: Callable[[torch.Tensor, torch.Tensor], float], optimizer: Optimizer,
+                learning_scheduler: Optional[Callable[[Dict, str], bool]] = None, starting_epoch: int = 0,
+                stopping_epoch: int = 5, out_dir: Optional[str] = None,
+                return_model_criterion: Optional[Callable[[Dict], bool]] = None,
+                save_model_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
+                stopping_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
+                stats_trackers: Union[None, Callable, str] = None):
     """
 
     Parameters
@@ -192,6 +186,7 @@ def train_model(
         are instantiations of torch.optim.SGD and of torch.optim.RMSprop.
     scheduler : object
         An instantiation of a torch scheduler object, like those found in torch.optim.lr_scheduler.
+    starting_epoch : int
     stopping_epoch : int
         The maximum number of epochs used to train. An epoch size is defined by the length of the training dataset as
         contained in dataloaders: "len(dataloaders['train'])"
@@ -268,7 +263,7 @@ def train_model(
 
     models_to_return = []
     save_cnt = 0
-    for epoch in range(stopping_epoch + 1):  # epoch 0 corresponds with model before training
+    for epoch in range(starting_epoch, stopping_epoch + 1):  # epoch 0 corresponds with model before training
         print()
         print('Epoch {}/{}'.format(epoch, stopping_epoch))
         print('-' * 10)
@@ -347,13 +342,6 @@ def train_model(
     # if classify:
     #     print('Final val Acc: {:4f}'.format(best_acc))
 
-    # load best model weights
-    # model.load_state_dict(best_model_wts)
-    # if classify:
-    #     history = dict(losses=epoch_losses, accuracies=epoch_accuracies, final_epoch=epoch)
-    # else:
-    #     history = dict(losses=epoch_losses, final_epoch=epoch)
-    # return model, history
     return models_to_return, {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
 
 if __name__ == '__main__':

@@ -10,30 +10,30 @@ class FeedForward(nn.Module):
     trainable neural network. See classes that inheret from this class for more user-friendly options.
     """
 
-    def __init__(self, layers: List[torch.Tensor], biases: List[torch.Tensor], nonlinearities: List[Callable]):
+    def __init__(self, layer_weights: List[torch.Tensor], biases: List[torch.Tensor], nonlinearities: List[Callable]):
         """
         
         Parameters
         ----------
-        layers : 
+        layer_weights : 
         biases : 
         nonlinearities : 
         """
         super().__init__()
-        self.layers = nn.ParameterList([nn.Parameter(layer, requires_grad=True) for layer in layers])
+        self.layer_weights = nn.ParameterList([nn.Parameter(layer, requires_grad=True) for layer in layer_weights])
         self.biases = nn.ParameterList([nn.Parameter(bias, requires_grad=True) for bias in biases])
         self.nonlinearities = nonlinearities
 
     def forward(self, inputs):
         hid = inputs
-        for layer, nonlinearity, bias in zip(self.layers, self.nonlinearities, self.biases):
+        for layer, nonlinearity, bias in zip(self.layer_weights, self.nonlinearities, self.biases):
             hid = nonlinearity(hid @ layer + bias)
         return hid
 
     def get_pre_activations(self, inputs):
         hid = inputs
         pre_activations = []
-        for layer, nonlinearity, bias in zip(self.layers, self.nonlinearities, self.biases):
+        for layer, nonlinearity, bias in zip(self.layer_weights, self.nonlinearities, self.biases):
             pre_activation = hid @ layer + bias
             hid = nonlinearity(pre_activation)
             pre_activations.append(pre_activation.detach())
@@ -42,7 +42,7 @@ class FeedForward(nn.Module):
     def get_post_activation(self, inputs):
         hid = inputs
         post_activations = []
-        for layer, nonlinearity, bias in zip(self.layers, self.nonlinearities, self.biases):
+        for layer, nonlinearity, bias in zip(self.layer_weights, self.nonlinearities, self.biases):
             hid = nonlinearity(hid @ layer + bias)
             post_activations.append(hid.detach())
         return post_activations
@@ -50,7 +50,7 @@ class FeedForward(nn.Module):
     def get_activations(self, inputs):
         hid = inputs
         activations = []
-        for layer, nonlinearity, bias in zip(self.layers, self.nonlinearities, self.biases):
+        for layer, nonlinearity, bias in zip(self.layer_weights, self.nonlinearities, self.biases):
             pre_activation = hid @ layer + bias
             hid = nonlinearity(pre_activation)
             activations.append(pre_activation.detach())
@@ -87,7 +87,7 @@ class DenseRandomFF(FeedForward):
         else:
             raise AttributeError("nonlinearity not recognized.")
 
-        layers = []
+        layer_weights = []
         nonlinearities = []
         biases = []
 
@@ -106,7 +106,7 @@ class DenseRandomFF(FeedForward):
             input_w_random = gain_factor * torch.randn(input_dim, hidden_dims[0])
 
         input_w = (1 - pert_factor) * input_w_id + pert_factor * input_w_random
-        layers.append(input_w)
+        layer_weights.append(input_w)
         nonlinearities.append(self.nonlinearity)
         biases.append(torch.zeros(hidden_dims[0]))
 
@@ -120,7 +120,7 @@ class DenseRandomFF(FeedForward):
                 hidden_w_random = gain_factor * torch.randn(hidden_dims[i0], hidden_dims[i0 + 1])
 
             hidden_w = (1 - pert_factor) * hidden_w_id + pert_factor * hidden_w_random
-            layers.append(hidden_w)
+            layer_weights.append(hidden_w)
             nonlinearities.append(self.nonlinearity)
             biases.append(torch.zeros(hidden_dims[i0 + 1]))
 
@@ -132,11 +132,11 @@ class DenseRandomFF(FeedForward):
             output_w_random = gain_factor * torch.randn(hidden_dims[-1], output_dim)
 
         output_w = (1 - pert_factor) * output_w_id + pert_factor * output_w_random
-        layers.append(output_w)
+        layer_weights.append(output_w)
         nonlinearities.append(self.nonlinearity)
         biases.append(torch.zeros(output_dim))
 
-        super().__init__(layers, biases, nonlinearities)
+        super().__init__(layer_weights, biases, nonlinearities)
 
 class SymmetricDenseRandomFF(FeedForward):
     """
@@ -163,7 +163,7 @@ class SymmetricDenseRandomFF(FeedForward):
         else:
             raise AttributeError("nonlinearity not recognized.")
 
-        layers = []
+        layer_weights = []
         nonlinearities = []
         biases = []
 
@@ -175,7 +175,7 @@ class SymmetricDenseRandomFF(FeedForward):
             input_w_random = gain_factor * torch.randn(input_dim, hidden_dim)
 
         input_w = (1 - pert_factor) * input_w_id + pert_factor * input_w_random
-        layers.append(input_w)
+        layer_weights.append(input_w)
         nonlinearities.append(self.nonlinearity)
         biases.append(torch.zeros(hidden_dim))
 
@@ -188,7 +188,7 @@ class SymmetricDenseRandomFF(FeedForward):
                 hidden_w_random = gain_factor * torch.randn(hidden_dim, hidden_dim)
 
             hidden_w = (1 - pert_factor) * hidden_w_id + pert_factor * hidden_w_random
-            layers.append(hidden_w)
+            layer_weights.append(hidden_w)
             nonlinearities.append(self.nonlinearity)
             biases.append(torch.zeros(hidden_dim))
 
@@ -200,11 +200,11 @@ class SymmetricDenseRandomFF(FeedForward):
             output_w_random = gain_factor * torch.randn(hidden_dim, output_dim)
 
         output_w = (1 - pert_factor) * output_w_id + pert_factor * output_w_random
-        layers.append(output_w)
+        layer_weights.append(output_w)
         nonlinearities.append(self.nonlinearity)
         biases.append(torch.zeros(output_dim))
 
-        super().__init__(layers, biases, nonlinearities)
+        super().__init__(layer_weights, biases, nonlinearities)
 
 class SymmetricFeedForward(nn.Module):
     """

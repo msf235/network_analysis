@@ -31,7 +31,7 @@ def random_classification(s, d, batch_size):
                    for x in ['train', 'val']}
     return dataloaders
 
-def data(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
+def data(num_trials: int, n_time: int, num_receptive_fields: Union[int, Tuple[Tuple[int]]], tau: int = 1000,
          latents: Tuple[Tuple[str]] = (('x',), ('y',), ('theta',)), num_peaks: Optional[Tuple[int]] = None,
          peak_width_factors: Optional[Union[Tuple[Tuple[float]], float]] = 0.1, sigma_mult: float = 0.,
          sigma_add: float = 0.):
@@ -42,7 +42,7 @@ def data(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
     ----------
     num_trials : int
     n_time : int
-    Inp_dim : int
+    num_receptive_fields : Union[int, Tuple[Tuple[int]]]
     tau : int
     latents : Tuple[Tuple[str]]
     num_peaks : Optional[Tuple[int]]
@@ -57,6 +57,20 @@ def data(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
     -------
 
     """
+    if not hasattr(num_receptive_fields, '__len__'):
+        d = num_receptive_fields
+        num_receptive_fields = []
+        for i0 in range(len(latents)):
+            num_receptive_fields.append([])
+            for i1 in range(len(latents[i0])):
+                num_receptive_fields[i0].append(d)
+
+    X_dim = 0
+    for i0 in range(len(latents)):
+        p = 1
+        for i1 in range(len(latents[i0])):
+            p = p * num_receptive_fields[i0][i1]
+        X_dim = X_dim + p
 
     def circular_distances(i, j, circular=False):
         cdist = torch.cdist
@@ -71,12 +85,22 @@ def data(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
     latent_vals = []
     for i0, latent_group in enumerate(latents):
         latent_vals_group = []
-        dists = torch.zeros(num_trials * n_time, Inp_dim, len(latent_group))
+        len_latents = len(latent_group)
+        p = 1
+        for x in num_receptive_fields[i0]:
+            p = p * x
+        dists = torch.zeros(num_trials * n_time, p, len_latents)
+        temp = [torch.linspace(0, 1 - 1 / num_receptive_fields[i0][i1], num_receptive_fields[i0][i1]) for i1 in
+                range(len_latents)]
+        out = torch.meshgrid(temp)
+        receptive_field_centers = torch.stack(out, dim=-1).reshape(-1, len_latents)
         for i1, x in enumerate(latent_group):
             if x == 'theta':
                 circular = True
+                tau_eff = tau
             elif x == 'x':
                 circular = False
+                tau_eff = 2*tau
             else:
                 raise AttributeError("Latent variable not recognized.")
             if hasattr(peak_width_factors, '__len__'):
@@ -90,22 +114,28 @@ def data(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
                 if tau == 0:
                     latent_val[:, i_time] = torch.rand(num_trials)
                 else:
-                    temp = (1 / math.sqrt(tau)) * torch.randn(num_trials)
+                    temp = (1 / math.sqrt(tau_eff)) * torch.randn(num_trials)
                     latent_val[:, i_time] = latent_val[:, i_time - 1] + temp
                     # theta[:, i_time, :] = theta[:, i_time - 1, :] + 1 / np.sqrt(tau) * np.random.randn(num_trials, 1)
+            a = latent_val.clone()
+            if not circular:
+                latent_val = torch.abs(torch.remainder(2 * latent_val, 2) - 1)
+            else:
+                latent_val = torch.remainder(latent_val, 1)
             latent_vals_group.append(latent_val)
-            dx = 1 / Inp_dim
-            receptive_field_centers = torch.linspace(0, 1 - dx, Inp_dim)
-            dist = circular_distances(receptive_field_centers, latent_val, circular)
-            dists[:, :, i1] = dist
+            # dx = 1 / Inp_dim
+            # receptive_field_centers = torch.linspace(0, 1 - dx, Inp_dim)
+            dist_x = circular_distances(receptive_field_centers[:, i1].unsqueeze(dim=-1), latent_val, circular)
+            dists[:, :, i1] = dist_x
         latent_vals.append(latent_vals_group)
-        dist_final = torch.sum(dists ** 2, dim=-1).reshape((num_trials, n_time, Inp_dim))
-        responses.append(0.1 * torch.exp(-(dist_final / sigma) ** 2))
+        dist_sq_final = torch.sum(dists ** 2, dim=-1).reshape((num_trials, n_time, p))
+        responses.append(0.1 * torch.exp(-dist_sq_final / sigma ** 2))
 
     responses = torch.cat(responses, dim=-1)
     # from matplotlib import pyplot as plt
     # plt.figure()
-    # plt.scatter(latent_vals[0][0][0], latent_vals[0][1][0], c=responses[0, :, 0]);
+    # idx = 200
+    # plt.scatter(latent_vals[0][0][0], latent_vals[0][1][0], c=responses[0, :, idx]);
     # plt.show()
 
     if sigma_add != 0:
@@ -116,7 +146,7 @@ def data(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
 def dataset(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
             latents: Tuple[Tuple[str]] = (('x',), ('y',), ('theta',)), num_peaks: Optional[Tuple[int]] = None,
             peak_width_factors: Optional[Union[Tuple[Tuple[float]], float]] = 0.1, sigma_mult: float = 0.,
-            sigma_add: float = 0., freeze_epochs: bool = True, train_perc: float = 0.8):
+            sigma_add: float = 0., freeze_epochs: bool = True, train_perc: float = 0.8, return_latents: bool = False):
     if not freeze_epochs:
         raise AttributeError("freeze_epochs=False option isn't implemented yet")
     else:
@@ -129,9 +159,9 @@ def dataset(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
 
         train_time = int(round(train_perc * n_time))
 
-        train_inputs = inputs[:,:train_time]
+        train_inputs = inputs[:, :train_time]
         train_inputs = train_inputs.reshape(-1, train_inputs.shape[-1])
-        val_inputs = inputs[:,train_time:]
+        val_inputs = inputs[:, train_time:]
         val_inputs = val_inputs.reshape(-1, val_inputs.shape[-1])
 
         train_targets = targets[:, :train_time]
@@ -142,8 +172,19 @@ def dataset(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,
         train_dataset = InpData(train_inputs, train_targets)
         val_dataset = InpData(val_inputs, val_targets)
 
-        return train_dataset, val_dataset
+        train_latent_vals = []
+        val_latent_vals = []
+        for group in latent_vals:
+            train_latent_vals.append([])
+            val_latent_vals.append([])
+            for x in group:
+                train_latent_vals[-1].append(x[:, :train_time].reshape(-1))
+                val_latent_vals[-1].append(x[:, train_time:].reshape(-1))
 
+        if return_latents:
+            return train_dataset, val_dataset, train_latent_vals, val_latent_vals
+        else:
+            return train_dataset, val_dataset
 
 if __name__ == '__main__':
     # out = data(4, 100, 20, tau=0, sigma_mult=0,
