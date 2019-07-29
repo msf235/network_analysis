@@ -65,20 +65,13 @@ def data(num_trials: int, n_time: int, num_receptive_fields: Union[int, Tuple[Tu
             for i1 in range(len(latents[i0])):
                 num_receptive_fields[i0].append(d)
 
-    X_dim = 0
-    for i0 in range(len(latents)):
-        p = 1
-        for i1 in range(len(latents[i0])):
-            p = p * num_receptive_fields[i0][i1]
-        X_dim = X_dim + p
-
     def circular_distances(i, j, circular=False):
         cdist = torch.cdist
         j = j.reshape(-1, 1)
         i = i.reshape(-1, 1)
         dists = cdist(j, i)
         if circular:
-            dists = torch.min(torch.fmod(dists, 1), torch.fmod(1 - dists, 1))
+            dists = torch.min(torch.remainder(dists, 1), torch.remainder(1 - dists, 1))
         return dists
 
     responses = []
@@ -100,7 +93,8 @@ def data(num_trials: int, n_time: int, num_receptive_fields: Union[int, Tuple[Tu
                 tau_eff = tau
             elif x == 'x':
                 circular = False
-                tau_eff = 2*tau
+                # tau_eff = 2*tau
+                tau_eff = tau
             else:
                 raise AttributeError("Latent variable not recognized.")
             if hasattr(peak_width_factors, '__len__'):
@@ -109,15 +103,15 @@ def data(num_trials: int, n_time: int, num_receptive_fields: Union[int, Tuple[Tu
                 sigma = peak_width_factors
             latent_val = torch.zeros((num_trials, n_time))
             latent_val[:, 0] = torch.rand(num_trials)
-
-            for i_time in range(n_time):
+            print
+            for i_time in range(1, n_time):
                 if tau == 0:
                     latent_val[:, i_time] = torch.rand(num_trials)
                 else:
                     temp = (1 / math.sqrt(tau_eff)) * torch.randn(num_trials)
                     latent_val[:, i_time] = latent_val[:, i_time - 1] + temp
                     # theta[:, i_time, :] = theta[:, i_time - 1, :] + 1 / np.sqrt(tau) * np.random.randn(num_trials, 1)
-            a = latent_val.clone()
+            # a = latent_val.clone()
             if not circular:
                 latent_val = torch.abs(torch.remainder(2 * latent_val, 2) - 1)
             else:
