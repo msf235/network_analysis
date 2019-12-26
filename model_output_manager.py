@@ -6,11 +6,9 @@ import pickle as pkl
 # import glob
 from pathlib import Path
 
-_DISABLE_MOM = False
-
 # %% Hyperparameters
-data_file_name = 'model_data'
-run_name = 'run'
+DATA_FILE_NAME = 'model_data'
+RUN_NAME = 'run'
 
 # data_filetype = 'pkl'
 
@@ -45,7 +43,7 @@ def __unique_to_set(a, b):
 def update_output_table(table_params, table_path='output/param_table.csv', compare_exclude=[], column_labels=None,
                         overwrite_existing=True):
     """
-    Add row to output table using entries of param_dict.
+    Add row to run tracker table using entries of param_dict.
 
     Args:
         table_params (dict, OrderedDict): Parameters that will be put into the table
@@ -56,7 +54,7 @@ def update_output_table(table_params, table_path='output/param_table.csv', compa
         table_path (string): The filepath for the table (including that table name, i.e. 'output/param_table.csv').
             Windows style paths are okay.
         column_labels (list): Contains the keys of params_table in the order in which they should be written in the
-            output table.
+            run tracker table.
         overwrite_existing (bool): Whether or not to overwrite identical table entries or make a new row and
             increment run_number.
 
@@ -64,9 +62,6 @@ def update_output_table(table_params, table_path='output/param_table.csv', compa
         run_id (int): Unique identifier for the run.
 
     """
-    if _DISABLE_MOM:
-        return -1
-
     table_path = Path(table_path)
     table_dir = table_path.parents[0]
     Path.mkdir(table_dir, exist_ok=True)
@@ -97,8 +92,6 @@ def make_dir_for_run(table_params, table_path='output/param_table.csv', compare_
             run. For instance, if runs are identical except for the date when the run was done, then it might be
             reasonable to consider the runs as being identical, reflected in the variable run_number. Hence,
             one may want to put the date parameter key in compare_exclude.
-        column_labels (list): Contains the keys of params_table in the order in which they should be written in the
-            output table.
         overwrite_existing (bool): Whether or not to overwrite identical table entries or make a new row and
             increment run_number.
 
@@ -107,68 +100,61 @@ def make_dir_for_run(table_params, table_path='output/param_table.csv', compare_
         run_dir (str): The path to the output directory for the run
 
     """
-    if _DISABLE_MOM:
-        return -1, Path.parent[0]
-
     run_id = update_output_table(table_params, table_path, compare_exclude, [], overwrite_existing)
-
     table_path = Path(table_path)
     table_dir = table_path.parents[0]
-    run_dir = Path(table_dir / (run_name + '_' + str(run_id) + '/'))
+    run_dir = Path(table_dir/(RUN_NAME+'_'+str(run_id)+'/'))
     Path.mkdir(run_dir, exist_ok=True)
     os.makedirs(run_dir, exist_ok=True)
     return run_id, run_dir
 
-def write_output(output, params, table_params, output_path, overwrite=False, data_filetype='pickle'):
+def write_output(output, params, table_params, output_dir, overwrite=False, data_filetype='pickle'):
     """
 
     Args:
         output (dict): Dictionary that holds the output data
         params (dict): Dictionary that holds the parameters
         table_params (dict): Dictionary that holds the parameters in the output table
-        output_path (string): Filepath for output file
+        output_dir (string): Parent directory for output file. The output file name is DATA_FILE_NAME.pkl or
+            DATA_FILE_NAME.h5
 
     Returns:
 
     """
-    if _DISABLE_MOM:
-        return
-
-    output_path = Path(output_path)
-    output_dir = output_path.parents[0]
+    output_dir = Path(output_dir)
+    output_dir = output_dir.parents[0]
+    output_file = (output_dir/DATA_FILE_NAME).with_suffix('.pkl')
     print()
-    print("Attempting to write data to " + str(Path.cwd() / output_path))
+    print("Attempting to write data to "+str(Path.cwd() / output_file ))
     print()
-    do_write_output = True
     try:
-        os.makedirs(output_dir, exist_ok=False)
+        output_dir.mkdir(parents=True)
     except (OSError, FileExistsError):
         if overwrite:
             print("Warning: existing data directory overwritten.")
         else:
             print("Data directory already exists. Not writing output.")
-            do_write_output = False
-    if do_write_output:
-        if data_filetype == 'hdf5':
-            with h5py.File(output_path, "w") as fid:
-                param_grp = fid.create_group("parameters")
-                param_table_grp = fid.create_group("table_parameters")
-                out_grp = fid.create_group("output")
-                for key in params:
-                    if params[key] is not None:
-                        param_grp.create_dataset(key, data=params[key])
-                for key in table_params:
-                    if table_params[key] is not None:
-                        param_table_grp.create_dataset(key, data=table_params[key])
-                for key in output:
-                    if output[key] is not None:
-                        out_grp.create_dataset(key, data=output[key])
-        elif data_filetype == 'pickle':
-            data = dict(parameters=params, table_parameters=table_params, output=output)
-            with open(output_path, "wb") as fid:
-                pkl.dump(data, fid)
+            return
+    if data_filetype == 'hdf5':
+        with h5py.File(output_dir, "w") as fid:
+            param_grp = fid.create_group("parameters")
+            param_table_grp = fid.create_group("table_parameters")
+            out_grp = fid.create_group("output")
+            for key in params:
+                if params[key] is not None:
+                    param_grp.create_dataset(key, data=params[key])
+            for key in table_params:
+                if table_params[key] is not None:
+                    param_table_grp.create_dataset(key, data=table_params[key])
+            for key in output:
+                if output[key] is not None:
+                    out_grp.create_dataset(key, data=output[key])
+    elif data_filetype == 'pickle':
+        data = dict(parameters=params, table_parameters=table_params, output=output)
+        with open(output_file, "wb") as fid:
+            pkl.dump(data, fid, protocol=4)
 
-        print("Done. Data written.")
+    print("Done. Data written.")
 
 def save_model(table_params, table_path, model_output, params, compare_exclude=[], columns=None,
                overwrite_existing=False, data_filetype='pickle'):
@@ -195,32 +181,30 @@ def save_model(table_params, table_path, model_output, params, compare_exclude=[
     Returns:
 
     """
-    if _DISABLE_MOM:
-        return -1, 'MOM_DISABLED/'
-
     run_id = update_output_table(table_params, table_path, compare_exclude, columns, overwrite_existing)
     table_path = Path(table_path)
     table_dir = table_path.parents[0]
     if data_filetype == 'hdf5':
-        file_name = data_file_name + '.h5'
+        file_name = DATA_FILE_NAME+'.h5'
     elif data_filetype == 'pickle':
-        file_name = data_file_name + '.pkl'
+        file_name = DATA_FILE_NAME+'.pkl'
     else:
         raise ValueError('data_filetype option not recognized.')
-    output_dir = table_dir / (run_name + '_' + str(run_id))
+    output_dir = table_dir / (RUN_NAME+'_'+str(run_id))
     output_path = output_dir / file_name
     params.update(dict(table_path=table_path, output_dir=output_dir, run_id=run_id))
     write_output(model_output, params, table_params, output_path, overwrite_existing, data_filetype)
 
     return run_id, output_path
 
-# %% Methods for loading data
 # Todo: Build in support for nested dictionaries / groups
 def hdf5group_to_dictionary(h5grp):
     d = {}
     for key in h5grp:
         d[key] = h5grp[key].value
     return d
+
+# %% Methods for checking for run existence and getting location
 
 def run_with_id_exists(run_id, table_dir='output', only_directory_ok=False):
     """
@@ -238,80 +222,119 @@ def run_with_id_exists(run_id, table_dir='output', only_directory_ok=False):
         bool
 
     """
-    if _DISABLE_MOM:
-        return False
     table_dir = Path(table_dir)
-    run_dir = Path(table_dir / (run_name + '_' + str(run_id)))
+    run_dir = Path(table_dir/(RUN_NAME+'_'+str(run_id)))
     if only_directory_ok:
         return Path.exists(run_dir)
     else:
-        filename_no_ext = Path(run_dir / data_file_name)
+        filename_no_ext = Path(run_dir/DATA_FILE_NAME)
         filelist = list(filename_no_ext.glob('.*'))
         return len(filelist) > 0
 
-def get_dirs_for_run(table_params, table_path='output/param_table.csv', compare_exclude=[]):
+def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', compare_exclude=[]):
+    """
+
+    Parameters
+    ----------
+    run_params : dict
+        Dictionary holding the parameters specifying the run
+    table_path : str
+        Path to the run tracker table
+    compare_exclude : list
+        list holding the parameters that should be excluded in specifying the run
+
+    Returns
+    -------
+    List[str]
+        Directories that match run_params and compare_exclude.
+    List[int]
+        Run Ids that match run_params and compare_exclude.
+    List[bool]
+        List of bools that correspond with the other two returned lists, with an entry being True if the output data
+        file is in the directory and False otherwise.
+    """
     table_path = Path(table_path)
     table_dir = table_path.parents[0]
-    out = _get_updated_table(compare_exclude, table_params, table_path)
+    out = _get_updated_table(compare_exclude, run_params, table_path)
+    run_ids = out[0]
     merge_ids = out[-1]
-    return [str(table_dir / f"run_{x}") for x in merge_ids]
+    dirs = [str(table_dir / f"run_{x}") for x in merge_ids]
+    ids = [x for x in merge_ids]
+    output_exists = [Path.exists((Path(d)/DATA_FILE_NAME).with_suffix('.pkl')) for d in dirs]
+    return dirs, ids, output_exists
 
-def run_with_params_exists(table_params, table_path='output/param_table.csv', compare_exclude=[],
-                           only_directory_ok=False):
-    """
-    Given a set of parameters, check if a run matching this set exists.
+# def run_with_params_exists(table_params, table_path='output/param_table.csv', compare_exclude=[],
+#                            check_output_exist=True):
+#     """
+#     Given a set of parameters, check if a run matching this set exists.
+#
+#     Args:
+#         table_params (dict, OrderedDict): Parameters that will be put into the table
+#         table_path (string): The filepath for the table.
+#         compare_exclude (list): Parameters that will be excluded when determining if two rows represent the same
+#             run. For instance, if runs are identical except for the date when the run was done, then it might be
+#             reasonable to consider the runs as being identical, reflected in the variable run_number. Hence,
+#             one may want to put the date parameter key in compare_exclude.
+#
+#     Returns:
+#
+#     """
+#
+#
+#     table_path = Path(table_path)
+#     table_dir = table_path.parents[0]
+#     out = _get_updated_table(compare_exclude, table_params, table_path)
+#     merge_ids = out[-1]
+#
+#     dirs = get_dirs_for_run(run_params, table_path='output/param_table.csv', compare_exclude=[])
+#
+#     file_check = True
+#     if check_output_exist:
+#         for dir in dirs:
+#             if not Path.exists(table_dir)
+#     return len(merge_ids) > 1
 
-    Args:
-        table_params (dict, OrderedDict): Parameters that will be put into the table
-        table_path (string): The filepath for the table.
-        compare_exclude (list): Parameters that will be excluded when determining if two rows represent the same
-            run. For instance, if runs are identical except for the date when the run was done, then it might be
-            reasonable to consider the runs as being identical, reflected in the variable run_number. Hence,
-            one may want to put the date parameter key in compare_exclude.
-
-    Returns:
-
-    """
-    if _DISABLE_MOM:
-        return False
-
-    table_path = Path(table_path)
-    table_dir = table_path.parents[0]
-    out = _get_updated_table(compare_exclude, table_params, table_path)
-    merge_ids = out[-1]
-
-    if only_directory_ok:
-        return len(merge_ids) > 1
-    else:
-        run_id, run_number, param_df_updated, merge_ids
-
+# %% Methods for loading data
 def _get_updated_table(compare_exclude, table_params, table_path, column_labels=None):
     """
     Core method for updating a parameter table.
 
-    Args:
-        compare_exclude (List): Parameters that should be excluded for comparisons with the run table
-        table_params (Dict-like): Parameters for the run
-        table_path (str): Path to the run table
+    Parameters
+    ----------
+    compare_exclude : list
+        Parameters that should be excluded for comparisons with the run table
+    table_params : Dict-like
+        Parameters for the run
+    table_path : str
+        Path to the run table
         column_labels (List[str]): Labels for the columns. Used to assert an order.
 
-    Returns:
-        run_id (int): Unique identifier for the run
-        run_number (int): Indexes runs with the same parameters.
-        param_df_updated (DataFrame): The updated run table.
-        merge_ids (List[int]): List of unique identifiers of runs that correspond with table_params.
+    Returns
+    -------
+    run_id : int
+        Unique identifier for the run
+    run_number : int
+        Indexes runs with the same parameters.
+    param_df_updated : DataFrame
+        The updated run table.
+    merge_ids : List[int]
+        List of unique identifiers of runs that corresponded with table_params (not incluing the new row)
     """
-
-    if not os.path.isfile(table_path):  # If the table hasn't been created yet.
+    table_path = Path(table_path)
+    if not table_path.exists():  # If the table hasn't been created yet.
         run_id = 0
-        param_df_updated = pd.DataFrame(table_params, index=[run_id], columns=column_labels, dtype=object)
+        if not column_labels:
+            param_df_updated = pd.DataFrame(table_params, index=[run_id], dtype=object)
+        else:
+            param_df_updated = pd.DataFrame(table_params, index=[run_id], columns=column_labels, dtype=object)
+
         param_df_updated['run_number'] = 0
         param_df_updated = param_df_updated.fillna('na')
         run_number = 0
         merge_ids = [0]
         return run_id, run_number, param_df_updated, merge_ids
 
-    if column_labels is None:
+    if not column_labels:
         column_labels = list(table_params.keys()).copy()
     if 'run_number' not in column_labels:
         column_labels.append('run_number')  # To make sure run_number is the last column, unless otherwise specified
@@ -321,7 +344,7 @@ def _get_updated_table(compare_exclude, table_params, table_path, column_labels=
         param_df[key] = pd.Series('na', index=param_df.index)
     unique_to_param_df = __unique_to_set(param_df.columns, column_labels)[0]
     if not unique_to_param_df:  # If column_labels is comprehensive
-        param_df = param_df[column_labels]  # Reorder colums of param_df based on column_labels
+        param_df = param_df[column_labels]  # Reorder columns of param_df based on column_labels
 
     run_id = np.max(np.array(param_df.index)) + 1
     new_row = pd.DataFrame(table_params, index=[run_id], dtype=str)
@@ -335,6 +358,13 @@ def _get_updated_table(compare_exclude, table_params, table_path, column_labels=
     # temp_merge = pd.merge(temp1, temp2)
     temp_merge = temp1.reset_index().merge(temp2).set_index('index')  # This merges while preserving the index
 
+    # Debug code
+    # agree = temp1.reset_index().merge(temp2, how).set_index('index')
+    # for key in temp1:
+    #     print()
+    #     print(key, '\t\t', temp1[key], temp2[key])
+    #     print()
+
     # This is needed to ensure proper order in some cases (if table_params has less items than the table has columns)
     column_labels = list(temp_merge.columns)
     column_labels.append('run_number')
@@ -342,7 +372,7 @@ def _get_updated_table(compare_exclude, table_params, table_path, column_labels=
     new_row['run_number'] = run_number
     new_row = new_row[column_labels]
 
-    param_df_updated = param_df.append(new_row)
+    param_df_updated = param_df.append(new_row, sort=True)
     merge_ids = list(temp_merge.index)
 
     return run_id, run_number, param_df_updated, merge_ids
@@ -360,15 +390,13 @@ def load_from_id(run_id, table_path='output/param_table.csv', data_filetype='pic
     Returns:
 
     """
-    if _DISABLE_MOM:
-        raise Exception('shouldnt get here')
 
     # md = io.loadmat(basedir + 'output/' + str(run_id) + '/collected_data.mat')
     # md = pkl.load(open(basedir + output_dir + '/' + run_name + '_' + str(run_id) + '/output.pkl', 'rb'))
     # params = io.loadmat(basedir + 'output/' + str(run_id) + '/PARAMS.mat')
     table_path = Path(table_path)
     table_dir = table_path.parents[0]
-    filename_no_ext = Path(table_dir / (run_name + '_' + str(run_id) + '/' + data_file_name))
+    filename_no_ext = Path(table_dir/(RUN_NAME+'_'+str(run_id)+'/'+DATA_FILE_NAME))
     if data_filetype == "hdf5":
         try:
             hf = h5py.File(filename_no_ext.with_suffix('.h5'), 'r')
@@ -407,26 +435,23 @@ def load_data(compare_exclude, table_params, table_path='output/param_table.csv'
         output to say this. The function will then return nonunique_params.
 
     """
-    if _DISABLE_MOM:
-        raise Exception('shouldnt get here')
-
     table_path = Path(table_path)
     table_dir = table_path.parents[0]
 
     run_id, run_number, param_df_updated, merge_ids = _get_updated_table(compare_exclude, table_params,
                                                                          table_path=table_path)
 
-    if len(matched_ids) == 1:
-        run_id = matched_ids[0]
+    if len(merge_ids) == 1:
+        run_id = merge_ids[0]
         output, params = load_from_id(run_id, table_path, data_filetype)
         if output == -1:
             return -1, None, None, None
         if data_filetype == 'hdf5' and ret_as_dict:
             output = hdf5group_to_dictionary(output)
             params = hdf5group_to_dictionary(params)
-        run_dir = Path(table_dir / (run_name + '_' + str(run_id)))
+        run_dir = Path(table_dir/(RUN_NAME+'_'+str(run_id)))
         return output, params, run_id, run_dir
-    elif len(matched_ids) > 1:
+    elif len(merge_ids) > 1:
         print("The parameters in table_params don't uniquely determine the run.")
         # nonunique_params = {}
         # for cind in param_df_updated[merge_ids[:-1]].columns:
@@ -437,7 +462,7 @@ def load_data(compare_exclude, table_params, table_path='output/param_table.csv'
         # str1 = "The parameters in param_dict don't uniquely determine the run."
         # str2 = "Here are the nonunique parameters: {}".format(nonunique_params)
         # raise KeyError(str1 + str2)
-    elif len(matched_ids) == 0:
+    elif len(merge_ids) == 0:
         raise KeyError("Error: run matching parameters {} not found".format(table_params))
 
 # %% Untested
