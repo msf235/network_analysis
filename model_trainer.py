@@ -4,13 +4,17 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim.optimizer import Optimizer
+# from pdb import set_trace as stp
 
 from . import models
+# import models
 from . import tasks
+
+# import tasks
 
 DISABLE_CHECKPOINTS = False
 
-def save_checkpoint(state, is_best=True, filename='output/checkpoint.pth.tar'):
+def save_checkpoint(state, is_best=True, filename: Union[str, Path] = 'output/checkpoint.pth.tar'):
     """
     Save checkpoint if a new best is achieved. This will always create the
     checkpoint directory as if it were going to create the file, but only
@@ -38,36 +42,6 @@ def save_checkpoint(state, is_best=True, filename='output/checkpoint.pth.tar'):
         torch.save(state, str(filename), pickle_protocol=4)  # save checkpoint
     else:
         print("=> Validation Accuracy did not improve")
-
-# if len(outputs.shape) == 3:
-
-#                         if outputs.shape[-1] == 1:
-#                             preds = (outputs[:, -1] < 0.5).long() * 0 + (outputs[:, -1] >= 0.5).long() * 1
-#                         else:
-#                             _, preds = torch.max(outputs[:, -1], -1)
-
-
-# else:
-# if outputs.shape[-1] == 1:
-#     preds = (outputs < 0.5).long() * 0 + (outputs >= 0.5).long() * 1
-# else:
-#     _, preds = torch.max(outputs, -1)
-
-
-#         if phase == 'val':
-#             stop_bool = train_conv_check.check_increasing(epoch_loss, verbose=True)
-#             # min_loss = min(min_loss, epoch_loss)
-#             # if epoch_loss >= min_loss + patience_thresh:
-#             #     patience_cnt += 1
-#             # else:
-#             #     patience_cnt = 0
-#             #     best_model_wts = copy.deepcopy(model.state_dict())
-#             #     if classify:
-#             #         best_acc = epoch_acc
-#             # if patience_cnt >= patience_before_stopping:
-#             #     stop_bool = True
-#             # # prev_loss = epoch_loss
-
 
 class DefaultStatsTracker:
     def __init__(self, batches_per_epoch, phase: str, accuracy: bool = True):
@@ -97,22 +71,22 @@ class DefaultStatsTracker:
             self.running_avg_loss_epoch = 0.
             self.running_accuracy_epoch = 0.
 
-        num_terms_tot = self.batches_per_epoch * epoch + (batch + 1)
-        num_terms_epoch = batch + 1
+        num_terms_tot = self.batches_per_epoch*epoch+(batch+1)
+        num_terms_epoch = batch+1
         # print(n)
-        self.running_avg_loss_tot = (self.running_avg_loss_tot * ((num_terms_tot - 1) / num_terms_tot)
-                                     + stat_dict['loss'] / num_terms_tot)
-        self.running_avg_loss_epoch = (self.running_avg_loss_epoch * ((num_terms_epoch - 1) / num_terms_epoch)
-                                       + stat_dict['loss'] / num_terms_epoch)
+        self.running_avg_loss_tot = (self.running_avg_loss_tot*((num_terms_tot-1)/num_terms_tot)
+                                     +stat_dict['loss']/num_terms_tot)
+        self.running_avg_loss_epoch = (self.running_avg_loss_epoch*((num_terms_epoch-1)/num_terms_epoch)
+                                       +stat_dict['loss']/num_terms_epoch)
 
         # print(stat_dict['loss'])
         # print(self.running_avg_loss_epoch)
         if self.accuracy:
             out_class = torch.argmax(stat_dict['outputs'], dim=1)
-            accuracy = torch.mean((out_class == stat_dict['labels']).double())
+            accuracy = torch.mean((out_class == stat_dict['targets']).double())
 
-            self.running_accuracy_epoch = (self.running_accuracy_epoch * ((num_terms_epoch - 1) / num_terms_epoch)
-                                           + accuracy / num_terms_epoch)
+            self.running_accuracy_epoch = (self.running_accuracy_epoch*((num_terms_epoch-1)/num_terms_epoch)
+                                           +accuracy/num_terms_epoch)
 
         if stat_dict['epoch_end']:  # We've reached the end of an epoch
             self.epoch_losses.append(self.running_avg_loss_epoch)
@@ -141,9 +115,9 @@ class LearningScheduler:
         if batch == 0:
             self.running_avg_loss_epoch = 0.
 
-        num_terms_epoch = batch + 1
-        self.running_avg_loss_epoch = (self.running_avg_loss_epoch * ((num_terms_epoch - 1) / num_terms_epoch)
-                                       + stats_dict['loss'] / num_terms_epoch)
+        num_terms_epoch = batch+1
+        self.running_avg_loss_epoch = (self.running_avg_loss_epoch*((num_terms_epoch-1)/num_terms_epoch)
+                                       +stats_dict['loss']/num_terms_epoch)
 
         if stats_dict['epoch_end'] and phase == 'val':  # We've reached the end of an epoch and are validating
             self.epoch_losses.append(self.running_avg_loss_epoch)
@@ -162,13 +136,14 @@ def default_return_model_criterion(stat_dict):
     return stat_dict['final_epoch']
 
 def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
-                loss_function: Callable[[torch.Tensor, torch.Tensor], float], optimizer: Optimizer,
-                learning_scheduler: Optional[Callable[[Dict, str], bool]] = None, starting_epoch: int = 0,
+                loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor], optimizer: Optimizer,
+                learning_scheduler=None,
+                starting_epoch: int = 0,
                 stopping_epoch: int = 5, out_dir: Optional[str] = None,
-                return_model_criterion: Optional[Callable[[Dict], bool]] = None,
+                return_model_criterion: Optional[object] = None,
                 save_model_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
                 stopping_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
-                stats_trackers: Union[None, Callable, str] = None):
+                stats_trackers: Union[None, Dict[str, Callable], str] = None):
     """
 
     Parameters
@@ -182,21 +157,19 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
         A function that takes the model output and to an input batch drawn from "dataloaders" as the first parameter
         and the corresponding output labels as the second.
     optimizer : Optimizer
-        An instantiation of a class that inherets from a torch Optimizer object and used to train the model. Examples
-        are instantiations of torch.optim.SGD and of torch.optim.RMSprop.
-    scheduler : object
-        An instantiation of a torch scheduler object, like those found in torch.optim.lr_scheduler.
+        An instantiation of a class that inherets from a torch Optimizer object. Used to train the model. Examples
+        are instantiations of torch.optim.SGD and of torch.optim.RMSprop
     starting_epoch : int
+        CAUTION: Not implemented. Don't touch.
     stopping_epoch : int
         The maximum number of epochs used to train. An epoch size is defined by the length of the training dataset as
         contained in dataloaders: "len(dataloaders['train'])"
-    out_dir : Optional[str]
+    out_dir : Optional[str, Path]
         The output directory in which to save the model parameters through training.
-    stats_trackers : Union[None, Callable, str] = None
-
-    learning_scheduler : Optional[Callable[[Dict, str], bool]] = None
-
-    return_model_criterion : Optional[Callable[[Dict], bool]] = None
+    stats_trackers : Union[None, Dict[Callable], str]
+    learning_scheduler : object
+        An instantiation of a torch scheduler object, like those found in torch.optim.lr_scheduler.
+    return_model_criterion : Optional[Callable[[Dict], bool]]
         An Optional Callable that takes in the statistics of the run during training as defined by a dictionary and
         returns True if the model should be added to the list of models returned by train_model. If None,
         this list consists of the model at the furthest point in training before training is stopped.
@@ -219,20 +192,26 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     Dict
         A dictionary that holds the statistics of the run after every epoch. May also hold statistics after every
         batch if track_over_batches is True.
+    Dict
+        A dictionary that holds the learning_scheduler and stats_trackers. These are useful for starting a training
+        session where a previous one left off.
+    Callable
+        The learning scheduler object. This is useful for starting a training session where a previous one left off.
 
     """
     out_dir = Path(out_dir)
     device = torch.device("cpu")
     dataset_sizes = {x: len(dataloaders[x].dataset) for x in dataloaders}
-    batches_per_epoch = {x: int(dataset_sizes[x] / dataloaders[x].batch_size) for x in ['train', 'val']}
+    batches_per_epoch = {x: int(dataset_sizes[x]/dataloaders[x].batch_size) for x in ['train', 'val']}
 
     model.eval()
 
     if learning_scheduler is None:
         def learning_scheduler(stat_dict, phase):
             pass
-    else:
-        learning_scheduler = LearningScheduler(learning_scheduler)
+    # else:
+    # if not isinstance(learning_scheduler, LearningScheduler):
+    #     learning_scheduler = LearningScheduler(learning_scheduler)
 
     if save_model_criterion is None:
         save_model_criterion = default_save_model_criterion
@@ -254,19 +233,19 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     # stat_dict['train'] = {x: None for x in stat_keys}
     # stat_dict['val'] = {x: None for x in stat_keys}
 
-    stat_dict['model'] = model
-    stat_dict['dataloaders'] = dataloaders
+    # stat_dict['model'] = model
+    # stat_dict['dataloaders'] = dataloaders
     if out_dir is not None:
         Path.mkdir(out_dir, exist_ok=True)
 
     batch_sizes = {x: dataloaders[x].batch_size for x in ['train', 'val']}
 
     models_to_return = []
-    save_cnt = 0
-    for epoch in range(starting_epoch, stopping_epoch + 1):  # epoch 0 corresponds with model before training
+    # save_cnt = 0
+    for epoch in range(starting_epoch, stopping_epoch+1):  # epoch 0 corresponds with model before training
         print()
         print('Epoch {}/{}'.format(epoch, stopping_epoch))
-        print('-' * 10)
+        print('-'*10)
 
         val_batch_num = 0
         for phase in ['train', 'val']:  # First, the train loop, then the validation loop
@@ -277,9 +256,9 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
             elif validating:
                 model.eval()
             with torch.set_grad_enabled(epoch > 0 and training):  # track history only if training and epoch > 0
-                for inputs, labels in dataloaders[phase]:
+                for inputs, targets in dataloaders[phase]:
                     inputs = inputs.to(device)
-                    labels = labels.to(device)
+                    targets = targets.to(device)
 
                     # zero the parameter gradients
                     optimizer.zero_grad()
@@ -287,21 +266,22 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
 
                     # forward
                     outputs = model(inputs)
-                    loss = loss_function(outputs, labels)
+                    loss = loss_function(outputs, targets)
+                    # stp()
 
                     if hasattr(model, 'get_regularizer_loss'):
                         reg_loss = model.get_regularizer_loss(inputs)
                         if reg_loss is not None:
-                            loss = loss + reg_loss
+                            loss = loss+reg_loss
 
                     loss_val = loss.item()
                     stat_dict['loss'] = loss_val
                     stat_dict['epoch'] = epoch
                     stat_dict['batch'] = val_batch_num
                     stat_dict['outputs'] = outputs
-                    stat_dict['labels'] = labels
-                    if dataset_sizes[phase] % batch_sizes[phase] == 0 or dataloaders[phase].drop_last == True:
-                        if val_batch_num == batches_per_epoch[phase] - 1:
+                    stat_dict['targets'] = targets
+                    if dataset_sizes[phase]%batch_sizes[phase] == 0 or dataloaders[phase].drop_last == True:
+                        if val_batch_num == batches_per_epoch[phase]-1:
                             stat_dict['epoch_end'] = True
                         else:
                             stat_dict['epoch_end'] = False
@@ -321,16 +301,17 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                     elif validating:
                         if save_model_criterion(stat_dict):
                             if out_dir is not None:
-                                save_checkpoint({'state_dict': model.state_dict()},
-                                                filename=out_dir / 'check_{}'.format(save_cnt))
-                                save_cnt = save_cnt + 1
+                                save_checkpoint({'model_state_dict': model.state_dict(),
+                                                 'optimizer_state_dict': optimizer.state_dict(),
+                                                 'learning_scheduler_state_dict': learning_scheduler.scheduler.state_dict()},
+                                                filename=out_dir/'check_{}'.format(epoch))
+                                # save_cnt = save_cnt+1
                         if return_model_criterion(stat_dict):
                             models_to_return.append(model)
-                        val_batch_num = val_batch_num + 1
+                        val_batch_num = val_batch_num+1
 
                     learning_scheduler(stat_dict, phase)
                     stats_trackers[phase](stat_dict)
-
 
             if stopping_criterion(stat_dict):
                 return models_to_return, {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
@@ -341,20 +322,33 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     #     time_elapsed // 60, time_elapsed % 60))
     # if classify:
     #     print('Final val Acc: {:4f}'.format(best_acc))
+    export_dict = {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
+    training_log_and_machinery = dict(stats_history=export_dict, stats_trackers=stats_trackers,
+                                      learning_scheduler=learning_scheduler, optimizer=optimizer)
 
-    return models_to_return, {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
+    return models_to_return, training_log_and_machinery
 
 if __name__ == '__main__':
-    ff = models.DenseRandomRegularFF(20, 15, 2, 2, 0.1, 0.4, 'tanh')
-    data = tasks.random_classification(110, 20, 20)
+    # ff = models.DenseRandomRegularFF(20, 15, 2, 2, 0.1, 0.4, 'tanh')
+    ff = models.DenseRandomFF(20, 15, 2, 2, 0.1, 0.4, 'tanh')
+    data = tasks.classification.random_classification(110, 20)
     criterion_CEL = nn.CrossEntropyLoss()
 
     # loss = 0
     # if len(outputs.shape) == 3:
     #     for i1 in range(outputs.shape[1]):
     #         loss += loss_function(outputs[:, i1], labels[:, i1])
-    def loss(output, label):
+    def loss(output: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
         return criterion_CEL(output, label.long())
 
     optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, ff.parameters()), lr=.1)
-    train_model(ff, data, loss, optimizer, stopping_epoch=10, out_dir='test')
+    lr_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.4, patience=5, threshold=1e-7,
+                                                          threshold_mode='abs', min_lr=0, verbose=True)
+    lr_sched = LearningScheduler(lr_sched)
+    trained_models, stats, stats_trackers, learning_scheduler = train_model(ff, data, loss, optimizer,
+                                                                            learning_scheduler=lr_sched,
+                                                                            stopping_epoch=10, out_dir='test')
+    out = train_model(trained_models[0], data, loss, optimizer, starting_epoch=11, stopping_epoch=15, out_dir='test',
+                      learning_scheduler=learning_scheduler, stats_trackers=stats_trackers)
+
+    print

@@ -123,7 +123,8 @@ def data(num_trials: int, n_time: int, num_receptive_fields: Union[int, Tuple[Tu
             dists[:, :, i1] = dist_x
         latent_vals.append(latent_vals_group)
         dist_sq_final = torch.sum(dists ** 2, dim=-1).reshape((num_trials, n_time, p))
-        responses.append(0.1 * torch.exp(-dist_sq_final / sigma ** 2))
+        # responses.append(0.1 * torch.exp(-dist_sq_final / sigma ** 2))
+        responses.append(torch.exp(-dist_sq_final / sigma ** 2))
 
     responses = torch.cat(responses, dim=-1)
     # from matplotlib import pyplot as plt
@@ -134,7 +135,7 @@ def data(num_trials: int, n_time: int, num_receptive_fields: Union[int, Tuple[Tu
 
     if sigma_add != 0:
         responses = responses + sigma_add * torch.randn(*responses.shape)
-
+    responses = 0.1 * responses
     return responses, responses, latent_vals
 
 def dataset(num_trials: int, n_time: int, Inp_dim: int, tau: int = 1000,

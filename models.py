@@ -79,7 +79,7 @@ class DenseRandomFF(FeedForward):
                 self.nonlinearity = torch.tanh
             elif nonlinearity == 'relu' or nonlinearity == 'ReLU':
                 def relu(x):
-                    return torch.clamp(x, min=9)
+                    return torch.clamp(x, min=0)
 
                 self.nonlinearity = relu
             else:
@@ -159,7 +159,7 @@ class RNN(nn.Module):
                 self.nonlinearity = torch.tanh
             elif nonlinearity == 'relu' or nonlinearity == 'ReLU':
                 def relu(x):
-                    return torch.clamp(x, min=9)
+                    return torch.clamp(x, min=0)
 
                 self.nonlinearity = relu
             else:
@@ -168,42 +168,43 @@ class RNN(nn.Module):
             raise AttributeError("nonlinearity not recognized.")
 
         if hidden_unit_init is None:
-            self.hidden_unit_init = 0
+            self.hidden_unit_init = torch.zeros(recurrent_weights.shape[0])
         elif isinstance(hidden_unit_init, torch.Tensor):
-            self.hidden_unit_init = hidden_unit_init
+            self.hidden_unit_init = hidden_unit_init.clone()
         else:
             raise AttributeError("hidden_unit_init option not recognized.")
 
         if train_input:
-            self.Win = nn.Parameter(input_weights, requires_grad=True)
+            self.Win = nn.Parameter(input_weights.clone(), requires_grad=True)
         else:
-            self.Win = nn.Parameter(input_weights, requires_grad=False)
+            self.Win = nn.Parameter(input_weights.clone(), requires_grad=False)
 
         if train_recurrent:
-            self.Wrec = torch.Parameter(recurrent_weights, requires_grad=True)
+            self.Wrec = nn.Parameter(recurrent_weights.clone(), requires_grad=True)
         else:
-            self.Wrec = torch.Parameter(recurrent_weights, requires_grad=False)
+            self.Wrec = nn.Parameter(recurrent_weights.clone(), requires_grad=False)
 
         if train_output:
-            self.Wout = torch.Parameter(output_weights, requires_grad=True)
+            self.Wout = nn.Parameter(output_weights.clone(), requires_grad=True)
         else:
-            self.Wout = torch.Parameter(output_weights, requires_grad=False)
+            self.Wout = nn.Parameter(output_weights.clone(), requires_grad=False)
 
         if train_recurrent_bias:
-            self.brec = torch.Parameter(recurrent_bias, requires_grad=True)
+            self.brec = nn.Parameter(recurrent_bias.clone(), requires_grad=True)
         else:
-            self.brec = torch.Parameter(recurrent_bias, requires_grad=False)
+            self.brec = nn.Parameter(recurrent_bias.clone(), requires_grad=False)
 
         if train_output_bias:
-            self.bout = torch.Parameter(output_bias, requires_grad=True)
+            self.bout = nn.Parameter(output_bias.clone(), requires_grad=True)
         else:
-            self.bout = torch.Parameter(output_bias, requires_grad=False)
+            self.bout = nn.Parameter(output_bias.clone(), requires_grad=False)
 
     def forward(self, inputs):
         hid = self.hidden_unit_init
         for i0 in range(inputs.shape[1]):
-            hid = self.nonlinearity()
-        out = hid @ self.Wout + self.bout
+            preactivation = hid@self.Wrec + inputs[:, i0]@self.Win + self.brec
+            hid = self.nonlinearity(preactivation)
+        out = hid@self.Wout+self.bout
         return out
 
     def get_pre_activations(self, inputs):

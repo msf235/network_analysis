@@ -4,7 +4,19 @@ from pathlib import Path
 from . import model_output_manager as mom
 
 
-def load_model(model, filename):
+import traceback
+import warnings
+import sys
+
+def warn_with_traceback(message, category, filename, lineno, file=None, line=None):
+
+    log = file if hasattr(file,'write') else sys.stderr
+    traceback.print_stack(file=log)
+    log.write(warnings.formatwarning(message, category, filename, lineno, line))
+
+warnings.showwarning = warn_with_traceback
+
+def load_model(model, filename, optimizer=None, learning_scheduler=None):
     """
     Load the given torch model from the given file.
 
@@ -15,16 +27,27 @@ def load_model(model, filename):
     Returns:
         (torch.nn.Module, dict) the model passed in and the state_info loaded.
     """
-    state_info = torch.load(filename)
-    model.load_state_dict(state_info['state_dict'])
-    return model, state_info
+    model_state_info = torch.load(filename)
+    model.load_state_dict(model_state_info['model_state_dict'])
+    if optimizer is not None and learning_scheduler is not None:
+        optimizer.load_state_dict(model_state_info['optimizer_state_dict'])
+        learning_scheduler.load_state_dict(model_state_info['learning_scheduler_state_dict'])
+        return model, optimizer, learning_scheduler
+    if learning_scheduler is not None:
+        learning_scheduler.load_state_dict(model_state_info['learning_scheduler_state_dict'])
+        return model, learning_scheduler
+    if optimizer is not None:
+        optimizer.load_state_dict(model_state_info['optimizer_state_dict'])
+        return model, optimizer
+    return model
 
-def get_max_epoch(out_dir):
+def get_max_epoch(out_dir, max_look = 10000):
     """
     Get the oldest saved epoch in the given directory.
 
     Args:
         out_dir: (string) the path to the directory
+        max_look: (int) Maximum number of epochs to iterate through before giving up.
 
     Returns:
         (number) the oldest epoch that is saved in the specified directory.
@@ -32,14 +55,14 @@ def get_max_epoch(out_dir):
     out_dir = Path(out_dir)
     # i0 = 0
     # dir_exists = True
-    max_look = 10000
     for i0 in range(max_look):
         filename = out_dir/'check_{}'.format(i0)
         dir_exists = Path.exists(filename)
         if not dir_exists:
             return i0 - 1
+    raise ValueError("max_look not large enough to iterate through all epochs. Increase size of max_look.")
 
-def load_model_from_epoch_and_dir(model, out_dir, epoch_num):
+def load_model_from_epoch_and_dir(model, out_dir, epoch_num, optimizer=None, learning_scheduler=None):
     """
     Loads the module as it was on a specific epoch.
 
@@ -55,12 +78,9 @@ def load_model_from_epoch_and_dir(model, out_dir, epoch_num):
     if epoch_num == -1:
         epoch_num = get_max_epoch(out_dir)
     filename = out_dir/'check_{}'.format(epoch_num)
-    state_info = torch.load(filename)
-    model.load_state_dict(state_info['state_dict'])
-    return model, state_info
+    return load_model(model, filename, optimizer, learning_scheduler)
 
-
-def load_model_mom(model, epoch, arg_dict, table_path):
+def load_model_mom(model, epoch, arg_dict, table_path, compare_exclude=[], optimizer=None, learning_scheduler=None):
     """
     Load a specific model using the model output manager paradigm. This uses
     the model output manager to locate/create the folder containing the run,
@@ -78,13 +98,12 @@ def load_model_mom(model, epoch, arg_dict, table_path):
         run_name: (string) the name of the run
 
     Returns:
-        (torch.nn.Module, dict) the loaded model and the state info
+        (torch.nn.Module, dict) the loaded model
     """
-    run_dir = mom.get_dirs_for_run(arg_dict, table_path=table_path)[0]
+    run_dir = mom.get_dirs_for_run(arg_dict, table_path, compare_exclude)[0]
     if epoch == -1:
         epoch = get_max_epoch(run_dir)
-    model, state_info = load_model_from_epoch_and_dir(model, run_dir, epoch)
-    return model, state_info
+    return load_model_from_epoch_and_dir(model, run_dir, epoch, optimizer, learning_scheduler)
 
 class model_loader:
     def __init__(self, model_template, run_dir):
@@ -121,7 +140,7 @@ class weight_loader:
             w_scal = True
         filename = self.run_dir + 'check_{}'.format(w_idx[0])
         state_info = torch.load(filename)
-        state_dict = state_info['state_dict']
+        state_dict = state_info['model_state_dict']
         keys = list(state_dict.keys())
         w = dict()
         for key in keys:
@@ -133,7 +152,7 @@ class weight_loader:
         for i0, el0 in enumerate(w_idx):
             filename = self.run_dir + 'check_{}'.format(el0)
             state_info = torch.load(filename)
-            state_dict = state_info['state_dict']
+            state_dict = state_info['model_state_dict']
             for key in keys:
                 if w_scal:
                     w[key] = state_dict[key]
