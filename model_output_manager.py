@@ -122,7 +122,6 @@ def write_output(output, params, table_params, output_dir, overwrite=False, data
 
     """
     output_dir = Path(output_dir)
-    output_dir = output_dir.parents[0]
     output_file = (output_dir/DATA_FILE_NAME).with_suffix('.pkl')
     print()
     print("Attempting to write data to "+str(Path.cwd() / output_file ))
