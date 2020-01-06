@@ -1,7 +1,8 @@
 import torch
 import numpy
 from pathlib import Path
-from . import model_output_manager as mom
+# from . import model_output_manager as mom
+import model_output_manager as mom
 
 
 import traceback
@@ -16,30 +17,33 @@ def warn_with_traceback(message, category, filename, lineno, file=None, line=Non
 
 warnings.showwarning = warn_with_traceback
 
-def load_model(model, filename, optimizer=None, learning_scheduler=None):
+def load_model(model_template, filename, optimizer=None, learning_scheduler=None):
     """
-    Load the given torch model from the given file.
+    Load the given torch model from the given file. WARNING: the model_template passed to this function is overwritten.
 
     Args:
-        model: (torch.nn.Module) the neural network module which should have its state loaded
-        filename: (string) the file that contains the state of the model
+        model_template : torch.nn.Module
+            The neural network module which should have its state loaded. WARNING: This model will be overwritten.
+        filename: string
+            the file that contains the state of the model
 
     Returns:
-        (torch.nn.Module, dict) the model passed in and the state_info loaded.
+        torch.nn.Module
+            the loaded model
     """
     model_state_info = torch.load(filename)
-    model.load_state_dict(model_state_info['model_state_dict'])
+    model_template.load_state_dict(model_state_info['model_state_dict'])
     if optimizer is not None and learning_scheduler is not None:
         optimizer.load_state_dict(model_state_info['optimizer_state_dict'])
         learning_scheduler.load_state_dict(model_state_info['learning_scheduler_state_dict'])
-        return model, optimizer, learning_scheduler
+        return model_template, optimizer, learning_scheduler
     if learning_scheduler is not None:
         learning_scheduler.load_state_dict(model_state_info['learning_scheduler_state_dict'])
-        return model, learning_scheduler
+        return model_template, learning_scheduler
     if optimizer is not None:
         optimizer.load_state_dict(model_state_info['optimizer_state_dict'])
-        return model, optimizer
-    return model
+        return model_template, optimizer
+    return model_template
 
 def get_max_epoch(out_dir, max_look = 10000):
     """
@@ -100,10 +104,11 @@ def load_model_mom(model, epoch, arg_dict, table_path, compare_exclude=[], optim
     Returns:
         (torch.nn.Module, dict) the loaded model
     """
-    run_dir = mom.get_dirs_for_run(arg_dict, table_path, compare_exclude)[0]
+    run_dir = mom.get_dirs_and_ids_for_run(arg_dict, table_path, compare_exclude)[0]
     if epoch == -1:
         epoch = get_max_epoch(run_dir)
-    return load_model_from_epoch_and_dir(model, run_dir, epoch, optimizer, learning_scheduler)
+    # Todo: use more sophisticated way of choosing the best directory
+    return load_model_from_epoch_and_dir(model, run_dir[-1], epoch, optimizer, learning_scheduler)
 
 class model_loader:
     def __init__(self, model_template, run_dir):
@@ -161,65 +166,207 @@ class weight_loader:
 
         return w
 
-class activity_loader:
-    def __init__(self, model, run_dir, X, layer_idx=None):
-        """
 
-        Args:
-            model ():
-            num_epochs (int): Number of epochs, not including the 0 epoch. Soo if num_epochs=2 then the epochs are
-                [0,1,2].
-            run_dir ():
-            X ():
-            layer_idx ():
-        """
-        self.run_dir = format_dir(run_dir)
-        self.num_epochs = get_max_epoch(self.run_dir)
-        self.model = model
-        self.X = X
-        self.layer_idx = layer_idx
+def get_activity(model, run_dir, inputs, epoch_idx, layer_idx=None, activations='post', return_as_Tensor=False):
+    """
 
-    def __len__(self):
-        return self.num_epochs + 1
+    Parameters
+    ----------
+    model
+    run_dir
+    inputs
+    epoch_idx : Union[int, list, tuple, slice]
+    activations : str
+        Type of activation. Options are: 'post' for getting the activations after the nonlinearity is applied,
+        'pre' for getting the activations  before the nonlinearity, and 'both' for getting the activations both
+        before and after the nonlinearity is applied. In the case of 'both', it is assumed that the model method
+        get_activations returns a list with preactivation for a layer, postactivation for the layer, preactivation
+        for the next layer, and so forth, where pre and post activations always come in pairs.
+    return_as_Tensor : bool
+        If True, the return data will be attempted to be returned as a pytorch Tensor. This only works if the
+        number of units in each of the layers specified by layer_idx are the same.
 
-    def __getitem__(self, idx):
-        """
-        Load over range of epochs.
-        Args:
-            idx (int, slice): Load over range of epochs designated by idx.
+    Returns
+    -------
 
-        Returns:
+    """
+    if layer_idx is None:
+        layer_idx = slice(None)
+    def identity(x):
+        return x
+    # Here we define layer_stack_fun, which will either stack things or not depending on function arguments.
+    if return_as_Tensor:
+        layer_stack_fun = torch.stack
+    else:
+        layer_stack_fun = identity
+    # We need to take care of three cases (1) layer_idx is an int, (2) layer_idx is a list or tuple, (3) layer_idx is a
+    # slice.
+    if isinstance(layer_idx, int): # (1)
+        if activations == 'both': # In this case we are still indexing multiple layers, so we index as in case (2).
+            def index_fun(data, idx):
+                return layer_stack_fun([data[x] for x in idx])
+        else: # In this we just need to grab the element specified by idx
+            def index_fun(data, idx):
+                return data[idx]
+    elif hasattr(layer_idx, '__len__'): # (2)
+        def index_fun(data, idx):
+            return layer_stack_fun([data[x] for x in idx])
+    elif isinstance(layer_idx, slice): # (3)
+        def index_fun(data, idx):
+            return layer_stack_fun(data[idx])
+    else:
+        raise AttributeError("layer_idx option not recognized.")
 
-        """
-        if isinstance(idx, tuple):
-            idx = list(idx)
-        n_idx = np.arange(self.num_epochs + 1)[idx]
-        scal = False
-        if not hasattr(n_idx, '__len__'):
-            n_idx = [n_idx]
-            scal = True
-        model, state_info = load_model_from_epoch_and_dir(self.model, self.run_dir, n_idx[0])
-        acts = model.get_activations(self.X)
-        # acts_full = acts  # careful!
-        acts_full = []
-        # hid_sh = [0] * len(acts_full)
-        for i0, act in enumerate(acts):
-            if scal:
-                acts_full.append(act.numpy().astype(float))
-            else:
-                acts_full.append(np.zeros((len(n_idx),) + act.shape))
-                acts_full[i0][0] = act.numpy().astype(float)
+    num_epochs = get_max_epoch(run_dir)
+    # Need to take care of three cases (1) epoch_idx is an int, (2) epoch_idx is a list or tuple, (3) epoch_idx is a
+    # slice.
+    epochs = range(num_epochs)
+    scal = isinstance(epoch_idx, int)
+    if hasattr(epoch_idx, '__len__'):
+        epoch_idx = [epochs[k] for k in epoch_idx]
+    else:
+        epoch_idx = list(epochs)[epoch_idx]
+    if scal:
+        epoch_idx = [epoch_idx]
 
-        if scal:
-            if self.layer_idx is not None:
-                acts_full = acts_full[self.layer_idx]
-            return acts_full
+    acts = []
+    if activations == 'post':
+        for idx in epoch_idx:
+            model = load_model_from_epoch_and_dir(model, run_dir, idx)
+            act = index_fun(model.get_post_activations(inputs), layer_idx)
+            acts.append(act)
+    elif activations == 'pre':
+        for idx in epoch_idx:
+            model = load_model_from_epoch_and_dir(model, run_dir, idx)
+            act = index_fun(model.get_pre_activations(inputs), layer_idx)
+            acts.append(act)
+    elif activations == 'both':
+        for idx in epoch_idx:
+            model = load_model_from_epoch_and_dir(model, run_dir, idx)
+            act = model.get_activations(inputs)
+            num_layers = len(act) / 2
+            layer_idx_stretched = 2*torch.arange(num_layers)[layer_idx]
+            layer_idx_adjusted = torch.sort(torch.cat((layer_idx_stretched, layer_idx_stretched+1)))[0]
+            act = index_fun(act, layer_idx_adjusted)
+            acts.append(act)
+    if scal:
+        return acts[0]
+    if return_as_Tensor:
+        return torch.stack(acts)
+    return acts
 
-        for i0, el0 in enumerate(n_idx[1:]):
-            model, state_info = load_model_from_epoch_and_dir(self.model, self.run_dir, el0)
-            acts = model.get_activations(self.X)
-            for i1, act in enumerate(acts):
-                acts_full[i1][i0 + 1] = act.numpy().astype(float)
-        if self.layer_idx is not None:
-            acts_full = acts_full[self.layer_idx]
-        return acts_full
+    # all_acts = torch.stack(all_acts)
+
+# class activity_loader:
+#     def __init__(self, model, inputs, run_dir, layer_idx=None):
+#         """
+#
+#         Args:
+#             model ():
+#             run_dir ():
+#             X ():
+#             layer_idx ():
+#         """
+#         self.run_dir = format_dir(run_dir)
+#         self.num_epochs = get_max_epoch(self.run_dir)
+#         self.model = model
+#         self.layer_idx = layer_idx
+#         self.inputs = inputs
+#
+#     def __len__(self):
+#         return self.num_epochs + 1
+#
+#     def __getitem__(self, epoch_idx):
+#         """
+#         Load over range of epochs.
+#         Args:
+#             idx (int, slice): Load over range of epochs designated by idx.
+#
+#         Returns:
+#
+#         """
+#         scal = False
+#         if not hasattr(epoch_idx, '__len__'):
+#             epoch_idx = [epoch_idx]
+#             scal = True
+#         epoch_idx = torch.arange(self.num_epochs + 1)[epoch_idx]  # This allows for negative indices
+#         acts = []
+#         if activations == 'post':
+#             for idx in epoch_idx:
+#                 model = load_model_from_epoch_and_dir(self.model, self.run_dir, idx)
+#                 acts.append(model.get_post_activations(self.inputs))
+#         elif activations == 'pre':
+#             for idx in epoch_idx:
+#                 model = load_model_from_epoch_and_dir(self.model, self.run_dir, idx)
+#                 acts.append(model.get_pre_activations(self.inputs))
+#         if activations == 'both':
+#             for idx in epoch_idx:
+#                 model = load_model_from_epoch_and_dir(self.model, self.run_dir, idx)
+#                 acts.append(model.get_activations(self.inputs))
+#         if scal:
+#             acts = acts[0]
+#         return acts
+
+
+# class activity_loader:
+#     def __init__(self, model, run_dir, X, layer_idx=None):
+#         """
+#
+#         Args:
+#             model ():
+#             num_epochs (int): Number of epochs, not including the 0 epoch. Soo if num_epochs=2 then the epochs are
+#                 [0,1,2].
+#             run_dir ():
+#             X ():
+#             layer_idx ():
+#         """
+#         self.run_dir = format_dir(run_dir)
+#         self.num_epochs = get_max_epoch(self.run_dir)
+#         self.model = model
+#         self.X = X
+#         self.layer_idx = layer_idx
+#
+#     def __len__(self):
+#         return self.num_epochs + 1
+#
+#     def __getitem__(self, idx):
+#         """
+#         Load over range of epochs.
+#         Args:
+#             idx (int, slice): Load over range of epochs designated by idx.
+#
+#         Returns:
+#
+#         """
+#         if isinstance(idx, tuple):
+#             idx = list(idx)
+#         n_idx = np.arange(self.num_epochs + 1)[idx]
+#         scal = False
+#         if not hasattr(n_idx, '__len__'):
+#             n_idx = [n_idx]
+#             scal = True
+#         model, state_info = load_model_from_epoch_and_dir(self.model, self.run_dir, n_idx[0])
+#         acts = model.get_activations(self.X)
+#         # acts_full = acts  # careful!
+#         acts_full = []
+#         # hid_sh = [0] * len(acts_full)
+#         for i0, act in enumerate(acts):
+#             if scal:
+#                 acts_full.append(act.numpy().astype(float))
+#             else:
+#                 acts_full.append(np.zeros((len(n_idx),) + act.shape))
+#                 acts_full[i0][0] = act.numpy().astype(float)
+#
+#         if scal:
+#             if self.layer_idx is not None:
+#                 acts_full = acts_full[self.layer_idx]
+#             return acts_full
+#
+#         for i0, el0 in enumerate(n_idx[1:]):
+#             model, state_info = load_model_from_epoch_and_dir(self.model, self.run_dir, el0)
+#             acts = model.get_activations(self.X)
+#             for i1, act in enumerate(acts):
+#                 acts_full[i1][i0 + 1] = act.numpy().astype(float)
+#         if self.layer_idx is not None:
+#             acts_full = acts_full[self.layer_idx]
+#         return acts_full

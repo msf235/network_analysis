@@ -121,10 +121,10 @@ class LearningScheduler:
 
         if stats_dict['epoch_end'] and phase == 'val':  # We've reached the end of an epoch and are validating
             self.epoch_losses.append(self.running_avg_loss_epoch)
-            try:
-                self.scheduler.step(self.running_avg_loss_epoch)
-            except AttributeError:
+            if isinstance(self.scheduler, torch.optim.lr_scheduler._LRScheduler):
                 self.scheduler.step()
+            else:
+                self.scheduler.step(self.running_avg_loss_epoch)
 
 def default_save_model_criterion(stat_dict):
     return stat_dict['epoch_end']
@@ -309,8 +309,8 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                         if return_model_criterion(stat_dict):
                             models_to_return.append(model)
                         val_batch_num = val_batch_num+1
-
-                    learning_scheduler(stat_dict, phase)
+                    if epoch > 0:
+                        learning_scheduler(stat_dict, phase)
                     stats_trackers[phase](stat_dict)
 
             if stopping_criterion(stat_dict):
