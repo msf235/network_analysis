@@ -6,8 +6,8 @@ import math
 
 class FeedForward(nn.Module):
     """
-    Class for feedforward neural network model. Takes a list of pytorch tensors and ties these together into a
-    trainable neural network. See classes that inheret from this class for more user-friendly options.
+    Class for feedforward neural network model. Takes a list of pytorch tensors holding the weight initializations and
+    ties these together into a trainable neural network.
     """
 
     def __init__(self, layer_weights: List[Tensor], biases: List[Tensor], nonlinearities: List[Callable]):
@@ -15,9 +15,12 @@ class FeedForward(nn.Module):
         
         Parameters
         ----------
-        layer_weights : 
-        biases : 
-        nonlinearities : 
+        layer_weights : List[Tensor]
+            List of the layer initializations.
+        biases : List[Tensor]
+            List of the bias initializations.
+        nonlinearities : List[Callable]
+            List of the nonlinearities used in the layers.
         """
         super().__init__()
         self.layer_weights = nn.ParameterList([nn.Parameter(layer, requires_grad=True) for layer in layer_weights])
@@ -148,22 +151,38 @@ class RNN(nn.Module):
                  train_recurrent: bool = True, train_output: bool = True, train_recurrent_bias: bool = True,
                  train_output_bias: bool = True, output_over_recurrent_time: bool = False):
         """
-
         Parameters
         ----------
-        input_weights
-        recurrent_weights
-        output_weights
-        recurrent_bias
-        output_bias
-        nonlinearity
-        hidden_unit_init
-        train_input
-        train_recurrent
-        train_output
-        train_recurrent_bias
-        train_output_bias
-        output_over_recurrent_time
+        input_weights : Tensor
+            Input weight initialization.
+        recurrent_weights : Tensor
+            Recurrent weight initialization.
+        output_weights : Tensor
+            Output weight initialization.
+        recurrent_bias : Tensor
+            Recurrent bias vector initialization.
+        output_bias : Tensor
+            Output bias vector initialization.
+        nonlinearity : Optional[Union[str, Callable]]
+            The nonlinearity to use for the hidden unit activation function.
+        hidden_unit_init : Optional[Union[str, Callable]]
+            Initial value for the hidden units. The network is set to this value at the beginning of every input
+            batch. Todo: make it so the hidden state can carry over input batches.
+        train_input : bool
+            True: train the input weights, i.e. set requires_grad = True for the input weights. False: keep the input
+            weights fixed to their initial value over training.
+        train_recurrent : bool
+            True: train the recurrent weights. False: keep the recurrent weights fixed to their initial value over training.
+        train_output : bool
+            True: train the output weights. False: keep the output weights fixed to their initial value over
+            training.
+        train_recurrent_bias : bool
+            True: train the recurrent bias. False: keep the recurrent bias fixed to its initial value over training.
+        train_output_bias : bool
+            True: train the output bias. False: keep the output bias fixed to its initial value over training.
+        output_over_recurrent_time : bool
+            True: Return network output over the recurrent timesteps. False: Only return the network output at the
+            last timestep.
         """
 
         super().__init__()
@@ -245,7 +264,7 @@ class RNN(nn.Module):
         preactivations.append(out.detach())
         return preactivations
 
-    def get_post_activation(self, inputs: Tensor):
+    def get_post_activations(self, inputs: Tensor):
         hid = self.hidden_unit_init
         postactivations = []
         for i0 in range(inputs.shape[1]):
@@ -342,7 +361,40 @@ class SompolinskyRNN(RNN):
                  hidden_unit_init: Optional[Union[str, Tensor]] = None, train_input: bool = False,
                  train_recurrent: bool = True, train_output: bool = True, train_recurrent_bias: bool = True,
                  train_output_bias: bool = True, dt: float = .01, output_over_recurrent_time: bool = False):
-
+        """
+        Parameters
+        ----------
+        input_weights : Tensor
+            Input weight initialization.
+        recurrent_weights : Tensor
+            Recurrent weight initialization.
+        output_weights : Tensor
+            Output weight initialization.
+        recurrent_bias : Tensor
+            Recurrent bias vector initialization.
+        output_bias : Tensor
+            Output bias vector initialization.
+        nonlinearity : Optional[Union[str, Callable]]
+            The nonlinearity to use for the hidden unit activation function.
+        hidden_unit_init : Optional[Union[str, Callable]]
+            Initial value for the hidden units. The network is set to this value at the beginning of every input
+            batch. Todo: make it so the hidden state can carry over input batches.
+        train_input : bool
+            True: train the input weights, i.e. set requires_grad = True for the input weights. False: keep the input
+            weights fixed to their initial value over training.
+        train_recurrent : bool
+            True: train the recurrent weights. False: keep the recurrent weights fixed to their initial value over training.
+        train_output : bool
+            True: train the output weights. False: keep the output weights fixed to their initial value over
+            training.
+        train_recurrent_bias : bool
+            True: train the recurrent bias. False: keep the recurrent bias fixed to its initial value over training.
+        train_output_bias : bool
+            True: train the output bias. False: keep the output bias fixed to its initial value over training.
+        output_over_recurrent_time : bool
+            True: Return network output over the recurrent timesteps. False: Only return the network output at the
+            last timestep.
+        """
         super().__init__(input_weights, recurrent_weights, output_weights, recurrent_bias, output_bias, nonlinearity,
                          hidden_unit_init, train_input, train_recurrent, train_output, train_recurrent_bias,
                          train_output_bias, output_over_recurrent_time)
