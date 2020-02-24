@@ -244,7 +244,7 @@ def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', co
 
     Returns
     -------
-    List[str]
+    List[Path]
         Directories that match run_params and compare_exclude.
     List[int]
         Run Ids that match run_params and compare_exclude.
@@ -257,9 +257,10 @@ def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', co
     out = _get_updated_table(compare_exclude, run_params, table_path)
     run_ids = out[0]
     merge_ids = out[-1]
-    dirs = [str(table_dir / f"run_{x}") for x in merge_ids]
+    dirs = [table_dir / f"run_{x}" for x in merge_ids]
     ids = [x for x in merge_ids]
-    output_exists = [Path.exists((Path(d)/DATA_FILE_NAME).with_suffix('.pkl')) for d in dirs]
+    # output_exists = [Path.exists((Path(d)/DATA_FILE_NAME).with_suffix('.pkl')) for d in dirs]
+    output_exists = [Path.exists(Path(d)/'training_completed_token') for d in dirs]
     return dirs, ids, output_exists
 
 # def run_with_params_exists(table_params, table_path='output/param_table.csv', compare_exclude=[],
@@ -330,7 +331,7 @@ def _get_updated_table(compare_exclude, table_params, table_path, column_labels=
         param_df_updated['run_number'] = 0
         param_df_updated = param_df_updated.fillna('na')
         run_number = 0
-        merge_ids = [0]
+        merge_ids = []
         return run_id, run_number, param_df_updated, merge_ids
 
     if not column_labels:

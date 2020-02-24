@@ -127,6 +127,7 @@ class LearningScheduler:
                 self.scheduler.step(self.running_avg_loss_epoch)
 
 def default_save_model_criterion(stat_dict):
+    # return stat_dict['epoch_end'] or stat_dict['epoch'] == 0
     return stat_dict['epoch_end']
 
 def default_stopping_criterion(stat_dict):
@@ -136,10 +137,12 @@ def default_return_model_criterion(stat_dict):
     return stat_dict['final_epoch']
 
 def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
-                loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor], optimizer: Optimizer,
+                loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+                optimizer: Optimizer,
                 learning_scheduler=None,
                 starting_epoch: int = 0,
-                stopping_epoch: int = 5, out_dir: Optional[str] = None,
+                stopping_epoch: int = 5,
+                out_dir: Optional[str] = None,
                 return_model_criterion: Optional[object] = None,
                 save_model_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
                 stopping_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
@@ -203,6 +206,11 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     device = torch.device("cpu")
     dataset_sizes = {x: len(dataloaders[x].dataset) for x in dataloaders}
     batches_per_epoch = {x: int(dataset_sizes[x]/dataloaders[x].batch_size) for x in ['train', 'val']}
+    checkpoint_ctr = starting_epoch
+
+    filename = out_dir/'training_completed_token'
+    if filename.exists():
+        filename.unlink()
 
     model.eval()
 
@@ -280,6 +288,7 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                     stat_dict['batch'] = val_batch_num
                     stat_dict['outputs'] = outputs
                     stat_dict['targets'] = targets
+
                     if dataset_sizes[phase]%batch_sizes[phase] == 0 or dataloaders[phase].drop_last == True:
                         if val_batch_num == batches_per_epoch[phase]-1:
                             stat_dict['epoch_end'] = True
@@ -290,7 +299,6 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                             stat_dict['epoch_end'] = True
                         else:
                             stat_dict['epoch_end'] = False
-
                     if epoch == stopping_epoch:
                         stat_dict['final_epoch'] = True
 
@@ -299,13 +307,13 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                             loss.backward()
                             optimizer.step()
                     elif validating:
-                        if save_model_criterion(stat_dict):
-                            if out_dir is not None:
-                                save_checkpoint({'model_state_dict': model.state_dict(),
-                                                 'optimizer_state_dict': optimizer.state_dict(),
-                                                 'learning_scheduler_state_dict': learning_scheduler.scheduler.state_dict()},
-                                                filename=out_dir/'check_{}'.format(epoch))
-                                # save_cnt = save_cnt+1
+                        if save_model_criterion(stat_dict) and out_dir is not None:
+                            save_checkpoint({'model_state_dict': model.state_dict(),
+                                             'optimizer_state_dict': optimizer.state_dict(),
+                                             'learning_scheduler_state_dict': learning_scheduler.scheduler.state_dict()},
+                                            filename=out_dir/'check_{}'.format(checkpoint_ctr))
+                            checkpoint_ctr += 1
+                            # save_cnt = save_cnt+1
                         if return_model_criterion(stat_dict):
                             models_to_return.append(model)
                         val_batch_num = val_batch_num+1
@@ -326,6 +334,9 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     training_log_and_machinery = dict(stats_history=export_dict, stats_trackers=stats_trackers,
                                       learning_scheduler=learning_scheduler, optimizer=optimizer)
 
+    filename = out_dir/'training_completed_token'
+    f = open(filename, 'w')
+    f.close()
     return models_to_return, training_log_and_machinery
 
 if __name__ == '__main__':
