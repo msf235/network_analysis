@@ -324,17 +324,17 @@ def get_activity(model, run_dir, inputs, epoch_idx, layer_idx=None, activations=
     acts = []
     if activations == 'post':
         for idx in epoch_idx:
-            model = load_model_from_epoch_and_dir(model, run_dir, idx)
+            load_model_from_epoch_and_dir(model, run_dir, idx)
             act = index_fun(model.get_post_activations(inputs), layer_idx)
             acts.append(act)
     elif activations == 'pre':
         for idx in epoch_idx:
-            model = load_model_from_epoch_and_dir(model, run_dir, idx)
+            load_model_from_epoch_and_dir(model, run_dir, idx)
             act = index_fun(model.get_pre_activations(inputs), layer_idx)
             acts.append(act)
     elif activations == 'both':
         for idx in epoch_idx:
-            model = load_model_from_epoch_and_dir(model, run_dir, idx)
+            load_model_from_epoch_and_dir(model, run_dir, idx)
             act = model.get_activations(inputs)
             num_layers = len(act)/2
             layer_idx_stretched = 2*torch.arange(num_layers)[layer_idx]
