@@ -277,10 +277,10 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                     loss = loss_function(outputs, targets)
                     # stp()
 
-                    if hasattr(model, 'get_regularizer_loss'):
-                        reg_loss = model.get_regularizer_loss(inputs)
-                        if reg_loss is not None:
-                            loss = loss+reg_loss
+                    # if hasattr(model, 'get_regularizer_loss'):
+                    #     reg_loss = model.get_regularizer_loss(inputs)
+                    #     if reg_loss is not None:
+                    #         loss = loss+reg_loss
 
                     loss_val = loss.item()
                     stat_dict['loss'] = loss_val
