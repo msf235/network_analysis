@@ -174,11 +174,11 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     learning_scheduler : object
         An instantiation of a torch scheduler object, like those found in torch.optim.lr_scheduler.
     return_model_criterion : Optional[Callable[[Dict], bool]]
+        CAUTION: not working correctly
         An Optional Callable that takes in the statistics of the run during training as defined by a dictionary and
         returns True if the model should be added to the list of models returned by train_model. If None,
         this list consists of the model at the furthest point in training before training is stopped.
     save_model_criterion : Optional[Callable[[Dict[int, float]], bool]] = None
-        CAUTION: This isn't actually working. Need to copy model by value.
         An Optional Callable that takes in the statistics of the run as defined by a dictionary and returns True if the
         model should be saved. The input dictionary has keys 'training_loss', 'validation_loss', 'training_accuracy',
         'validation_accuracy', 'training_loss_batch', 'validation_loss_batch', 'training_accuracy_batch',
