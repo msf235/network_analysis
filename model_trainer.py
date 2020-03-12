@@ -139,10 +139,10 @@ def default_return_model_criterion(stat_dict):
 def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                 loss_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
                 optimizer: Optimizer,
-                learning_scheduler=None,
                 starting_epoch: int = 0,
                 stopping_epoch: int = 5,
                 out_dir: Optional[str] = None,
+                learning_scheduler=None,
                 return_model_criterion: Optional[object] = None,
                 save_model_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
                 stopping_criterion: Optional[Callable[[Dict[int, float]], bool]] = None,
@@ -208,18 +208,11 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     batches_per_epoch = {x: int(dataset_sizes[x]/dataloaders[x].batch_size) for x in ['train', 'val']}
     checkpoint_ctr = starting_epoch
 
-    filename = out_dir/'training_completed_token'
-    if filename.exists():
-        filename.unlink()
-
     model.eval()
 
     if learning_scheduler is None:
         def learning_scheduler(stat_dict, phase):
             pass
-    # else:
-    # if not isinstance(learning_scheduler, LearningScheduler):
-    #     learning_scheduler = LearningScheduler(learning_scheduler)
 
     if save_model_criterion is None:
         save_model_criterion = default_save_model_criterion
@@ -237,19 +230,12 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
 
     stat_dict = {x: None for x in stat_keys}
     stat_dict['final_epoch'] = False
-    # stat_dict = dict()
-    # stat_dict['train'] = {x: None for x in stat_keys}
-    # stat_dict['val'] = {x: None for x in stat_keys}
-
-    # stat_dict['model'] = model
-    # stat_dict['dataloaders'] = dataloaders
     if out_dir is not None:
         Path.mkdir(out_dir, exist_ok=True)
 
     batch_sizes = {x: dataloaders[x].batch_size for x in ['train', 'val']}
 
     models_to_return = []
-    # save_cnt = 0
     for epoch in range(starting_epoch, stopping_epoch+1):  # epoch 0 corresponds with model before training
         print()
         print('Epoch {}/{}'.format(epoch, stopping_epoch))
@@ -275,12 +261,6 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                     # forward
                     outputs = model(inputs)
                     loss = loss_function(outputs, targets)
-                    # stp()
-
-                    # if hasattr(model, 'get_regularizer_loss'):
-                    #     reg_loss = model.get_regularizer_loss(inputs)
-                    #     if reg_loss is not None:
-                    #         loss = loss+reg_loss
 
                     loss_val = loss.item()
                     stat_dict['loss'] = loss_val
@@ -313,7 +293,6 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                                              'learning_scheduler_state_dict': learning_scheduler.scheduler.state_dict()},
                                             filename=out_dir/'check_{}'.format(checkpoint_ctr))
                             checkpoint_ctr += 1
-                            # save_cnt = save_cnt+1
                         if return_model_criterion(stat_dict):
                             models_to_return.append(model)
                         val_batch_num = val_batch_num+1
@@ -325,18 +304,15 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
                 return models_to_return, {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
 
     #
-    # time_elapsed = time.time() - since
-    # print('Training complete in {:.0f}m {:.0f}s'.format(
-    #     time_elapsed // 60, time_elapsed % 60))
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60))
     # if classify:
     #     print('Final val Acc: {:4f}'.format(best_acc))
     export_dict = {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
     training_log_and_machinery = dict(stats_history=export_dict, stats_trackers=stats_trackers,
                                       learning_scheduler=learning_scheduler, optimizer=optimizer)
 
-    filename = out_dir/'training_completed_token'
-    f = open(filename, 'w')
-    f.close()
     return models_to_return, training_log_and_machinery
 
 if __name__ == '__main__':
