@@ -1,3 +1,4 @@
+import time
 from typing import Callable, Union, Dict, Optional
 from pathlib import Path
 import torch
@@ -177,16 +178,17 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
         returns True if the model should be added to the list of models returned by train_model. If None,
         this list consists of the model at the furthest point in training before training is stopped.
     save_model_criterion : Optional[Callable[[Dict[int, float]], bool]] = None
+        CAUTION: This isn't actually working. Need to copy model by value.
         An Optional Callable that takes in the statistics of the run as defined by a dictionary and returns True if the
         model should be saved. The input dictionary has keys 'training_loss', 'validation_loss', 'training_accuracy',
         'validation_accuracy', 'training_loss_batch', 'validation_loss_batch', 'training_accuracy_batch',
         'validation_accuracy_batch', 'batch', and 'epoch'. If None, the model is saved after every epoch.
     stopping_criterion : Optional[Callable[[Dict[int, float]], bool]]
-        A Callable that takes in the statistics of the run as defined by a dictionary and returns True if training
-        should stop. The input dictionary has keys 'training_loss', 'validation_loss', 'training_accuracy',
-        'validation_accuracy', 'training_loss_batch', 'validation_loss_batch', 'training_accuracy_batch',
-        'validation_accuracy_batch', 'batch', and 'epoch'. See network_analysis.utils.stopping_criteria for example
-        Callables that can be used.
+        A Callable controlling early stopping. Takes in the statistics of the run as defined by a dictionary and
+        returns True if training should stop. The input dictionary has keys 'training_loss', 'validation_loss',
+        'training_accuracy', 'validation_accuracy', 'training_loss_batch', 'validation_loss_batch',
+        'training_accuracy_batch', 'validation_accuracy_batch', 'batch', and 'epoch'. See
+        network_analysis.utils.stopping_criteria for example Callables that can be used.
 
     Returns
     -------
@@ -206,7 +208,8 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     device = torch.device("cpu")
     dataset_sizes = {x: len(dataloaders[x].dataset) for x in dataloaders}
     batches_per_epoch = {x: int(dataset_sizes[x]/dataloaders[x].batch_size) for x in ['train', 'val']}
-    checkpoint_ctr = starting_epoch
+    checkpoint_ctr = [starting_epoch]
+    since = time.time()
 
     model.eval()
 
@@ -236,69 +239,91 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     batch_sizes = {x: dataloaders[x].batch_size for x in ['train', 'val']}
 
     models_to_return = []
-    for epoch in range(starting_epoch, stopping_epoch+1):  # epoch 0 corresponds with model before training
+
+    def end_of_epoch(phase, batch_number) -> bool:
+        if dataset_sizes[phase]%batch_sizes[phase] == 0 or dataloaders[phase].drop_last == True:
+            if batch_number == batches_per_epoch[phase]-1:
+                return True
+            else:
+                return False
+        else:
+            if inputs.shape[0] != batch_sizes[phase]:
+                return True
+            else:
+                return False
+
+    def train(epoch):
         print()
         print('Epoch {}/{}'.format(epoch, stopping_epoch))
         print('-'*10)
+        stat_dict['epoch'] = epoch
+        phase = 'train'
+        model.train()
+        with torch.set_grad_enabled(epoch > 0):  # track history only if training and epoch > 0
+            for batch_number, (inputs, targets) in enumerate(dataloaders[phase]):
+                inputs = inputs.to(device)
+                targets = targets.to(device)
 
-        val_batch_num = 0
-        for phase in ['train', 'val']:  # First, the train loop, then the validation loop
-            training = phase == 'train'
-            validating = phase == 'val'
-            if training:
-                model.train()
-            elif validating:
-                model.eval()
-            with torch.set_grad_enabled(epoch > 0 and training):  # track history only if training and epoch > 0
-                for inputs, targets in dataloaders[phase]:
-                    inputs = inputs.to(device)
-                    targets = targets.to(device)
+                # zero the parameter gradients
+                optimizer.zero_grad()
+                model.zero_grad()
 
-                    # zero the parameter gradients
-                    optimizer.zero_grad()
-                    model.zero_grad()
+                # forward
+                outputs = model(inputs)
+                loss = loss_function(outputs, targets)
 
-                    # forward
-                    outputs = model(inputs)
-                    loss = loss_function(outputs, targets)
+                loss_val = loss.item()
+                stat_dict['loss'] = loss_val
+                stat_dict['batch'] = val_batch_num
+                stat_dict['outputs'] = outputs
+                stat_dict['targets'] = targets
+                stat_dict['epoch_end'] = end_of_epoch(phase, batch_number)
+                if epoch == stopping_epoch:
+                    stat_dict['final_epoch'] = True
 
-                    loss_val = loss.item()
-                    stat_dict['loss'] = loss_val
-                    stat_dict['epoch'] = epoch
-                    stat_dict['batch'] = val_batch_num
-                    stat_dict['outputs'] = outputs
-                    stat_dict['targets'] = targets
+                if epoch > 0:
+                    loss.backward()
+                    optimizer.step()
+                    learning_scheduler(stat_dict, phase)
+                stats_trackers[phase](stat_dict)
 
-                    if dataset_sizes[phase]%batch_sizes[phase] == 0 or dataloaders[phase].drop_last == True:
-                        if val_batch_num == batches_per_epoch[phase]-1:
-                            stat_dict['epoch_end'] = True
-                        else:
-                            stat_dict['epoch_end'] = False
-                    else:
-                        if inputs.shape[0] != batch_sizes[phase]:
-                            stat_dict['epoch_end'] = True
-                        else:
-                            stat_dict['epoch_end'] = False
-                    if epoch == stopping_epoch:
-                        stat_dict['final_epoch'] = True
+    def validate(epoch):
+        # global checkpoint_ctr
+        print()
+        print('Validation')
+        print('-'*10)
+        stat_dict['epoch'] = epoch
+        phase = 'val'
+        model.eval()
+        with torch.no_grad():
+            for batch_number, (inputs, targets) in enumerate(dataloaders[phase]):
+                inputs = inputs.to(device)
+                targets = targets.to(device)
 
-                    if training:
-                        if epoch > 0:
-                            loss.backward()
-                            optimizer.step()
-                    elif validating:
-                        if save_model_criterion(stat_dict) and out_dir is not None:
-                            save_checkpoint({'model_state_dict': model.state_dict(),
-                                             'optimizer_state_dict': optimizer.state_dict(),
-                                             'learning_scheduler_state_dict': learning_scheduler.scheduler.state_dict()},
-                                            filename=out_dir/'check_{}'.format(checkpoint_ctr))
-                            checkpoint_ctr += 1
-                        if return_model_criterion(stat_dict):
-                            models_to_return.append(model)
-                        val_batch_num = val_batch_num+1
-                    if epoch > 0:
-                        learning_scheduler(stat_dict, phase)
-                    stats_trackers[phase](stat_dict)
+                # forward
+                outputs = model(inputs)
+                loss = loss_function(outputs, targets)
+                loss_val = loss.item()
+                stat_dict['loss'] = loss_val
+                stat_dict['batch'] = val_batch_num
+                stat_dict['outputs'] = outputs
+                stat_dict['targets'] = targets
+
+                stat_dict['epoch_end'] = end_of_epoch(phase, batch_number)
+                if epoch == stopping_epoch:
+                    stat_dict['final_epoch'] = True
+
+                stats_trackers[phase](stat_dict)
+
+                if save_model_criterion(stat_dict) and out_dir is not None:
+                    save_checkpoint({'model_state_dict': model.state_dict(),
+                                     'optimizer_state_dict': optimizer.state_dict(),
+                                     'learning_scheduler_state_dict': learning_scheduler.scheduler.state_dict()},
+                                    filename=out_dir/'check_{}'.format(checkpoint_ctr[0]))
+                    checkpoint_ctr[0] += 1
+                if return_model_criterion(stat_dict):
+                    models_to_return.append(model)
+                val_batch_num = val_batch_num+1
 
             if stopping_criterion(stat_dict):
                 return models_to_return, {x: stats_trackers[x].export_stats() for x in ['train', 'val']}
