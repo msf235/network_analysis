@@ -405,7 +405,7 @@ class SompolinskyRNN(RNN):
         if self.output_over_recurrent_time:
             # out = [hid]
             out = torch.zeros(inputs.shape[0], inputs.shape[1], self.Wout.shape[-1])
-            for i0 in range(inputs.shape[0]):
+            for i0 in range(inputs.shape[1]):
                 hid = hid + self.dt*(self.nonlinearity(hid)@self.Wrec + inputs[:, i0]@self.Win + self.brec)
                 out[:, i0] = hid@self.Wout + self.bout
             return out
@@ -435,17 +435,8 @@ class SompolinskyRNN(RNN):
         raise AttributeError("get_activations is not implemented for this model. Try get_currents or get_firing_rates.")
 
     def get_pre_activations(self, inputs: Tensor): # Alias for compatibility with other models
-        return get_currents(inputs)
+        return self.get_currents(inputs)
 
     def get_post_activations(self, inputs: Tensor): # Alias for compatibility with other models
-        return get_firing_rates(inputs)
+        return self.get_firing_rates(inputs)
 
-
-
-    # def get_post_activations(self, inputs: Tensor):
-    #     raise AttributeError(
-    #         "get_post_activations is not implemented for this model. Try get_currents or get_firing_rates.")
-    #
-    # def get_pre_activations(self, inputs: Tensor):
-    #     raise AttributeError(
-    #         "get_post_activations is not implemented for this model. Try get_currents or get_firing_rates.")
