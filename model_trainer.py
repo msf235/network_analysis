@@ -174,7 +174,6 @@ def train_model(model: nn.Module, dataloaders: Dict[str, DataLoader],
     learning_scheduler : object
         An instantiation of a torch scheduler object, like those found in torch.optim.lr_scheduler.
     return_model_criterion : Optional[Callable[[Dict], bool]]
-        CAUTION: not working correctly
         An Optional Callable that takes in the statistics of the run during training as defined by a dictionary and
         returns True if the model should be added to the list of models returned by train_model. If None,
         this list consists of the model at the furthest point in training before training is stopped.

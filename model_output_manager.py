@@ -1,3 +1,4 @@
+import copy
 import os
 import numpy as np
 import pandas as pd
@@ -69,9 +70,7 @@ def update_output_table(table_params, table_path='output/param_table.csv', compa
     for key in table_params:
         table_params[key] = str(table_params[key])
 
-    run_id, run_number, param_df_updated, merge_indices = _get_updated_table(compare_exclude,
-                                                                             table_params,
-                                                                             table_path,
+    run_id, run_number, param_df_updated, merge_indices = _get_updated_table(compare_exclude, table_params, table_path,
                                                                              column_labels)
 
     if run_number == 0 or not overwrite_existing:
@@ -230,7 +229,7 @@ def run_with_id_exists(run_id, table_dir='output', only_directory_ok=False):
         filelist = list(filename_no_ext.glob('.*'))
         return len(filelist) > 0
 
-def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', compare_exclude=[]):
+def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', compare_exclude=[], maximize=None):
     """
 
     Parameters
@@ -241,6 +240,9 @@ def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', co
         Path to the run tracker table
     compare_exclude : list
         list holding the parameters that should be excluded in specifying the run
+    maximize : Optional[str]
+        Parameter that should be maximized. Out of the runs that match run_params, return the ones that maximize the
+        argument maximize.
 
     Returns
     -------
@@ -254,13 +256,13 @@ def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', co
     """
     table_path = Path(table_path)
     table_dir = table_path.parents[0]
-    out = _get_updated_table(compare_exclude, run_params, table_path)
+    out = _get_updated_table(compare_exclude, run_params, table_path, None, maximize)
     run_ids = out[0]
     merge_ids = out[-1]
     dirs = [table_dir / f"run_{x}" for x in merge_ids]
     ids = [x for x in merge_ids]
-    # output_exists = [Path.exists((Path(d)/DATA_FILE_NAME).with_suffix('.pkl')) for d in dirs]
-    output_exists = [Path.exists(Path(d)/'training_completed_token') for d in dirs]
+    output_exists = [Path.exists((Path(d)/DATA_FILE_NAME).with_suffix('.pkl')) for d in dirs]
+    # output_exists = [Path.exists(Path(d)/'training_completed_token') for d in dirs]
     return dirs, ids, output_exists
 
 # def run_with_params_exists(table_params, table_path='output/param_table.csv', compare_exclude=[],
@@ -295,7 +297,7 @@ def get_dirs_and_ids_for_run(run_params, table_path='output/param_table.csv', co
 #     return len(merge_ids) > 1
 
 # %% Methods for loading data
-def _get_updated_table(compare_exclude, table_params, table_path, column_labels=None):
+def _get_updated_table(compare_exclude, table_params, table_path, column_labels=None, maximize=None):
     """
     Core method for updating a parameter table.
 
@@ -308,6 +310,9 @@ def _get_updated_table(compare_exclude, table_params, table_path, column_labels=
     table_path : str
         Path to the run table
         column_labels (List[str]): Labels for the columns. Used to assert an order.
+    maximize : Optional[str]
+        Parameter that should be maximized. Out of the runs that match run_params, return the ones that maximize the
+        argument maximize.
 
     Returns
     -------
@@ -318,9 +323,13 @@ def _get_updated_table(compare_exclude, table_params, table_path, column_labels=
     param_df_updated : DataFrame
         The updated run table.
     merge_ids : List[int]
-        List of unique identifiers of runs that corresponded with table_params (not incluing the new row)
+        List of unique identifiers of runs that corresponded with table_params (not including the new row)
     """
     table_path = Path(table_path)
+    compare_exclude_copy = compare_exclude.copy()
+    # import ipdb; ipdb.set_trace()
+    if maximize is not None:
+        compare_exclude_copy.append(maximize)
     if not table_path.exists():  # If the table hasn't been created yet.
         run_id = 0
         if not column_labels:
@@ -347,31 +356,40 @@ def _get_updated_table(compare_exclude, table_params, table_path, column_labels=
         param_df = param_df[column_labels]  # Reorder columns of param_df based on column_labels
 
     run_id = np.max(np.array(param_df.index)) + 1
+    # import ipdb; ipdb.set_trace()
     new_row = pd.DataFrame(table_params, index=[run_id], dtype=str)
     for e1 in unique_to_param_df:  # Add placeholders to new row for items that weren't in param_dict
         new_row[e1] = 'na'
     # new_row = new_row[column_labels]
-    compare_exclude2 = compare_exclude.copy()
+    compare_exclude2 = compare_exclude_copy.copy()
     compare_exclude2.append('run_number')
     temp1 = param_df.drop(compare_exclude2, axis=1, errors='ignore')
     temp2 = new_row.drop(compare_exclude, axis=1, errors='ignore')
     # temp_merge = pd.merge(temp1, temp2)
     temp_merge = temp1.reset_index().merge(temp2).set_index('index')  # This merges while preserving the index
-
+    if maximize is not None and len(temp_merge)>0:
+        maximize_col = param_df.loc[list(temp_merge.index)][maximize].astype(float)
+        id_max = maximize_col.idxmax()
+        max_val = maximize_col.loc[id_max]
+        temp_merge = temp_merge[maximize_col==max_val]
+    # import ipdb; ipdb.set_trace()
     # Debug code
-    # agree = temp1.reset_index().merge(temp2, how).set_index('index')
-    # for key in temp1:
-    #     print()
-    #     print(key, '\t\t', temp1[key], temp2[key])
-    #     print()
-
+    # m=temp1.loc[47]
+    # print(set(m.keys()).difference(set(table_params)))
+    # # agree = temp1.reset_index().merge(temp2).set_index('index')
+    # for key in temp2:
+    #     print('\n', key, '\t\t\t\t', m[key], ', ', temp2[key].iloc[0], ', ', m[key]==temp2[key].iloc[0], '\n')
+    #
+    # if len(temp_merge) == 0:
+    #     import ipdb; ipdb.set_trace()
     # This is needed to ensure proper order in some cases (if table_params has less items than the table has columns)
+    # breakpoint()
+    # import ipdb; ipdb.set_trace()
     column_labels = list(temp_merge.columns)
     column_labels.append('run_number')
     run_number = temp_merge.shape[0]
     new_row['run_number'] = run_number
     new_row = new_row[column_labels]
-
     param_df_updated = param_df.append(new_row, sort=True)
     merge_ids = list(temp_merge.index)
 
